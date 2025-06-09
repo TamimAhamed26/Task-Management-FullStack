@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { Role } from './role.entity';
 import { Token } from './token.entity';
+import { Notification } from 'src/entities/Notification.entity'; 
 
 @Entity()
 export class User {
@@ -41,7 +42,10 @@ id: number;
   @Column({ nullable: true })
   lastActiveAt?: Date;
 
-  
+@OneToMany(() => Notification, notification => notification.recipient)
+notifications: Notification[];
+
+
 }
 
 export { Role };

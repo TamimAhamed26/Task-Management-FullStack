@@ -101,7 +101,7 @@ export class RefreshTokenMiddleware implements NestMiddleware {
           {
             sub: user.id,
             email: user.email,
-            role: user.role?.name,
+            role: user.role?.name.toUpperCase(),
           },
           {
             secret: 'mysecretkey',

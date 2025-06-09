@@ -14,15 +14,14 @@ export class FileService {
     }
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<string> {
-    const fileExtension = extname(file.originalname);
-    const filename = `${Date.now()}${fileExtension}`;
+async uploadFile(file: Express.Multer.File): Promise<{ fileUrl: string }> {
+  const fileExtension = extname(file.originalname);
+  const filename = `${Date.now()}${fileExtension}`;
+  const filePath = path.join(this.uploadPath, filename);
+  fs.writeFileSync(filePath, file.buffer);
 
-    
-    const filePath = path.join(this.uploadPath, filename);
-    fs.writeFileSync(filePath, file.buffer);
+  return { fileUrl: `/uploads/${filename}` };
+}
 
-    return filename; 
-  }
 }
 

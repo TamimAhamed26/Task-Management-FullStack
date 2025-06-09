@@ -7,6 +7,7 @@ import { User } from 'src/entities/user.entity';
 import { FileService } from '../file/file.service';
 import { EmailService } from '../email/email.service';
 import { UserService } from 'src/user/user.service';
+import { TaskComment } from 'src/entities/TaskComment.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Task, User])],

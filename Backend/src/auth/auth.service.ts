@@ -74,7 +74,7 @@ async login(dto: LoginDto) {
   const payload = {
     sub: user.id,
     email: user.email,
-    role: user.role.name,
+    role: user.role.name.toUpperCase(), 
   };
 
   // Extend expiry if rememberMe is true

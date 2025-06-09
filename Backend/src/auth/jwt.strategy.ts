@@ -47,7 +47,6 @@ async validate(req: Request, payload: any) {
   return {
     id: payload.sub,
     email: payload.email,
-    role: payload.role,
-  };
+role: typeof payload.role === 'string' ? payload.role.toUpperCase() : payload.role.name.toUpperCase(),  };
 }
 }

@@ -9,6 +9,7 @@ import axios from 'axios';
 import { UserService } from 'src/user/user.service';
 import { FileService } from 'src/file/file.service';
 import { EmailService } from 'src/email/email.service';
+import * as path from 'path';
 
 
   @Injectable()
@@ -150,12 +151,12 @@ import { EmailService } from 'src/email/email.service';
       throw new ForbiddenException('Email must belong to an Admin user');
     }
   
-    const filename = await this.fileService.uploadFile(file);
-  
-    const downloadLink = `http://localhost:3000/progress/download/${filename}`;
-  
-    await this.emailService.sendFileUploadConfirmation(adminUser.email, filename, downloadLink);
-  
+const { fileUrl } = await this.fileService.uploadFile(file);
+const filename = path.basename(fileUrl);
+const downloadLink = `http://localhost:3001/progress/download/${filename}`;
+
+await this.emailService.sendFileUploadConfirmation(adminUser.email, filename, downloadLink);
+
     return `File uploaded successfully as '${filename}'. Admin notified with download link.`;
   }
   

@@ -8,14 +8,21 @@ import { RolesGuard } from '../auth/roles.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { UserModule } from '../user/user.module';  
 import { User } from 'src/entities/user.entity';
-
+import { TaskComment } from 'src/entities/TaskComment.entity';
+import { TaskAttachment } from 'src/entities/task-attachment.entity';
+import { FileService } from 'src/file/file.service';
+import { FileModule } from '../file/file.module'; 
+import { Notification } from 'src/entities/Notification.entity'; 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Task,User]),
-    UserModule,  
+    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification]),
+    UserModule,      FileModule, 
+
   ],
   controllers: [TaskController],
   providers: [
+    FileService, 
+
     TaskService,
     {
       provide: APP_GUARD,

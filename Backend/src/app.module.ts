@@ -18,6 +18,9 @@ import { UserController } from './user/user.controller';
 import { ProgressModule } from './progress/progress.module';
 import { PaymentModule } from './payment/payment.module';
 import { ConfigModule } from '@nestjs/config';
+import { TaskComment } from './entities/TaskComment.entity';
+import { TaskAttachment } from './entities/task-attachment.entity';
+import { Notification } from './entities/Notification.entity';
 
 @Module({
   imports: [
@@ -35,7 +38,7 @@ import { ConfigModule } from '@nestjs/config';
       username: 'postgres',
       password: 'root',
       database: 'task_management_db',
-      entities: [User, Role, Token, Task],
+      entities: [User, Role, Token, Task,TaskComment,TaskAttachment,Notification],
       synchronize: true,
       autoLoadEntities: true,
     }),
