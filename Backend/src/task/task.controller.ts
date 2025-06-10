@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   UploadedFile,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { PriorityLevel, Task } from '../entities/task.entity';
@@ -26,6 +27,7 @@ import { TaskHistoryDto } from './dto/task-history.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { NotificationDto } from './dto/notification.dto';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
+import { SearchTaskDto } from './dto/search-task.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
@@ -44,12 +46,13 @@ export class TaskController {
     return this.taskService.getTasksSortedByPriority();
   }
 
-  @Get('search')
+   @Get('search')
   @Roles('MANAGER')
-  async searchTasks(@Query('keyword') keyword: string): Promise<Task[]> {
-    return this.taskService.searchTasks(keyword);
+  async searchTasks(
+    @Query(ValidationPipe) searchDto: SearchTaskDto,
+  ): Promise<TaskDto[]> {
+    return this.taskService.searchTasks(searchDto);
   }
-
   @Patch(':id/assign')
   @Roles('MANAGER')
   async assignCollaborator(

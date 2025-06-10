@@ -21,6 +21,7 @@ import { TaskHistoryDto } from './dto/task-history.dto';
 import { FileService } from 'src/file/file.service';
 import { TimeLog } from 'src/entities/time-log.entity';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
+import { SearchTaskDto } from './dto/search-task.dto';
 
 @Injectable()
 export class TaskService {
@@ -150,15 +151,86 @@ export class TaskService {
     return tasks.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
   }
 
-  async searchTasks(keyword: string): Promise<Task[]> {
-    return this.taskRepository.find({
-      where: [
-        { title: ILike(`%${keyword}%`) },
-        { description: ILike(`%${keyword}%`) },
-      ],
-    });
-  }
 
+  async searchTasks(filters: SearchTaskDto): Promise<TaskDto[]> {
+    const {
+      keyword,
+      status,
+      priority,
+      category,
+      dueBefore,
+      assignedToUsername,
+      assignedToId,
+    } = filters;
+
+    const query = this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.createdBy', 'createdBy')
+      .leftJoinAndSelect('task.assignedTo', 'assignedTo')
+      .leftJoinAndSelect('task.approvedBy', 'approvedBy');
+
+    if (keyword) {
+      query.andWhere(
+        '(task.title ILIKE :keyword OR task.description ILIKE :keyword)',
+        { keyword: `%${keyword}%` },
+      );
+    }
+
+    if (status) {
+      query.andWhere('task.status = :status', { status });
+    }
+
+    if (priority) {
+      query.andWhere('task.priority = :priority', { priority });
+    }
+
+    if (category) {
+      query.andWhere('task.category = :category', { category });
+    }
+
+    if (dueBefore) {
+      if (isNaN(Date.parse(dueBefore))) {
+        throw new BadRequestException('Invalid dueBefore date format. Use YYYY-MM-DD.');
+      }
+      const dueBeforeAdjusted = new Date(dueBefore);
+      dueBeforeAdjusted.setHours(23, 59, 59, 999);
+      query.andWhere('task.dueDate <= :dueBefore', {
+        dueBefore: dueBeforeAdjusted.toISOString(),
+      });
+    }
+
+    if (assignedToUsername && assignedToId) {
+      throw new BadRequestException('Provide either assignedToUsername or assignedToId, not both.');
+    }
+
+    if (assignedToUsername) {
+      query.andWhere('assignedTo.username = :assignedToUsername', { assignedToUsername });
+    } else if (assignedToId) {
+      const assignedToIdNum = parseInt(assignedToId, 10);
+      if (isNaN(assignedToIdNum)) {
+        throw new BadRequestException('Invalid assignedToId format.');
+      }
+      query.andWhere('assignedTo.id = :assignedToId', { assignedToId: assignedToIdNum });
+    }
+
+    const tasks = await query.getMany();
+
+    return tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      priority: task.priority,
+      category: task.category,
+      dueDate: task.dueDate,
+      createdByUsername: task.createdBy?.username || '',
+      assignedToUsername: task.assignedTo?.username || '',
+      approvedByUsername: task.approvedBy?.username || '',
+      isCompleted: task.isCompleted,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+    }));
+  }
   async rejectTask(taskId: number, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
