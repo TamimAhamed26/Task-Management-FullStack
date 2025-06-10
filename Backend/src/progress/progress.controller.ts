@@ -10,6 +10,7 @@ import { EmailService } from '../email/email.service';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UserService } from 'src/user/user.service';
+import { AverageCompletionTimeDto, TaskCompletionRateDto, WorkloadDistributionDto } from './dto/progress.dto';
 
 
 @Controller('progress')
@@ -90,4 +91,48 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
   const fileStream = fs.createReadStream(filePath);
   fileStream.pipe(res);
 }
+
+  @Get('task-completion-rate')
+  @Roles('MANAGER')
+  async getTaskCompletionRate(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('username') username?: string,
+    @Query('userId') userId?: string,
+  ): Promise<TaskCompletionRateDto> {
+    return this.progressService.getTaskCompletionRate(
+      startDate,
+      endDate,
+      username,
+      userId ? parseInt(userId, 10) : undefined,
+    );
+  }
+
+  @Get('average-completion-time')
+  @Roles('MANAGER')
+  async getAverageCompletionTime(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('username') username?: string,
+    @Query('userId') userId?: string,
+  ): Promise<AverageCompletionTimeDto> {
+    return this.progressService.getAverageCompletionTime(
+      startDate,
+      endDate,
+      username,
+      userId ? parseInt(userId, 10) : undefined,
+    );
+  }
+
+  @Get('workload-distribution')
+  @Roles('MANAGER')
+  async getWorkloadDistribution(
+    @Query('username') username?: string,
+    @Query('userId') userId?: string,
+  ): Promise<WorkloadDistributionDto[]> {
+    return this.progressService.getWorkloadDistribution(
+      username,
+      userId ? parseInt(userId, 10) : undefined,
+    );
+  }
 }

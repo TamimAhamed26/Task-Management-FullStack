@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Task, TaskStatus } from '../entities/task.entity'; 
 import { Repository, Between } from 'typeorm';
@@ -10,6 +10,7 @@ import { UserService } from 'src/user/user.service';
 import { FileService } from 'src/file/file.service';
 import { EmailService } from 'src/email/email.service';
 import * as path from 'path';
+import { AverageCompletionTimeDto, TaskCompletionRateDto, WorkloadDistributionDto } from './dto/progress.dto';
 
 
   @Injectable()
@@ -210,5 +211,128 @@ async generateWeeklyReportPDF(): Promise<Buffer> {
 
   return finalBuffer;
 }
-  
+ async getTaskCompletionRate(
+    startDate?: string,
+    endDate?: string,
+    username?: string,
+    userId?: number,
+  ): Promise<TaskCompletionRateDto> {
+    const query = this.taskRepository.createQueryBuilder('task')
+      .leftJoin('task.assignedTo', 'user');
+
+    if (startDate && endDate) {
+      if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+        throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
+      }
+      const endDateAdjusted = new Date(endDate);
+      endDateAdjusted.setHours(23, 59, 59, 999);
+      query.where('task.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate: endDateAdjusted.toISOString(),
+      });
+    }
+
+    if (username && userId) {
+      throw new BadRequestException('Provide either username or userId, not both.');
+    }
+
+    if (username) {
+      query.andWhere('user.username = :username', { username });
+    } else if (userId) {
+      query.andWhere('user.id = :userId', { userId });
+    }
+
+    const totalTasks = await query.getCount();
+    const completedTasks = await query
+      .andWhere('task.status = :status', { status: TaskStatus.COMPLETED })
+      .getCount();
+
+    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+    return {
+      completionRate: parseFloat(completionRate.toFixed(2)),
+      completedTasks,
+      totalTasks,
+    };
+  }
+
+  async getAverageCompletionTime(
+    startDate?: string,
+    endDate?: string,
+    username?: string,
+    userId?: number,
+  ): Promise<AverageCompletionTimeDto> {
+    const query = this.taskRepository.createQueryBuilder('task')
+      .select('AVG(EXTRACT(EPOCH FROM (task.updatedAt - task.createdAt)) / 86400)', 'averageDays')
+      .leftJoin('task.assignedTo', 'user')
+      .where('task.status = :status', { status: TaskStatus.COMPLETED });
+
+    if (startDate && endDate) {
+      if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+        throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
+      }
+      const endDateAdjusted = new Date(endDate);
+      endDateAdjusted.setHours(23, 59, 59, 999);
+      query.andWhere('task.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate: endDateAdjusted.toISOString(),
+      });
+    }
+
+    if (username && userId) {
+      throw new BadRequestException('Provide either username or userId, not both.');
+    }
+
+    if (username) {
+      query.andWhere('user.username = :username', { username });
+    } else if (userId) {
+      query.andWhere('user.id = :userId', { userId });
+    }
+
+    const result = await query.getRawOne();
+    const averageDays = result.averageDays ? parseFloat(result.averageDays) : 0;
+
+    return {
+      averageDays: parseFloat(averageDays.toFixed(2)),
+    };
+  }
+
+  async getWorkloadDistribution(
+    username?: string,
+    userId?: number,
+  ): Promise<WorkloadDistributionDto[]> {
+    const query = this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoin('task.assignedTo', 'user')
+      .select('user.username', 'username')
+      .addSelect('COUNT(task.id)', 'taskCount')
+      .where('task.assignedTo IS NOT NULL');
+
+    if (username && userId) {
+      throw new BadRequestException('Provide either username or userId, not both.');
+    }
+
+    if (username) {
+      query.andWhere('user.username = :username', { username });
+    } else if (userId) {
+      query.andWhere('user.id = :userId', { userId });
+    }
+
+    const result = await query
+      .groupBy('user.username')
+      .orderBy('COUNT(task.id)', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      if (username || userId) {
+        throw new NotFoundException('No tasks found for the specified collaborator.');
+      }
+      return [];
+    }
+
+    return result.map(row => ({
+      username: row.username || 'Unassigned',
+      taskCount: parseInt(row.taskCount, 10),
+    }));
+  }
 }
