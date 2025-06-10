@@ -12,3 +12,15 @@ export interface WorkloadDistributionDto {
 export interface AverageCompletionTimeDto {
   averageDays: number;
 }
+
+
+export interface TotalHoursPerTaskDto {
+  taskId: number;
+  title: string;
+  totalHours: number;
+}
+
+export interface TotalHoursPerUserDto {
+  username: string;
+  totalHours: number;
+}

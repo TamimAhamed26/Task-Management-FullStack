@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseIntPipe, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { Response } from 'express';
 import { ProgressService } from './progress.service';
 import { ProgressReportDto } from './dto/ProgressReportDto';
@@ -10,7 +10,7 @@ import { EmailService } from '../email/email.service';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UserService } from 'src/user/user.service';
-import { AverageCompletionTimeDto, TaskCompletionRateDto, WorkloadDistributionDto } from './dto/progress.dto';
+import { AverageCompletionTimeDto, TaskCompletionRateDto, TotalHoursPerTaskDto, TotalHoursPerUserDto, WorkloadDistributionDto } from './dto/progress.dto';
 
 
 @Controller('progress')
@@ -133,6 +133,31 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
     return this.progressService.getWorkloadDistribution(
       username,
       userId ? parseInt(userId, 10) : undefined,
+    );
+  }
+
+ 
+  @Get('total-hours/task/:id')
+  @Roles('MANAGER')
+  async getTotalHoursPerTask(
+    @Param('id', ParseIntPipe) taskId: number,
+  ): Promise<TotalHoursPerTaskDto> {
+    return this.progressService.getTotalHoursPerTask(taskId);
+  }
+
+  @Get('total-hours/user')
+  @Roles('MANAGER')
+  async getTotalHoursPerUser(
+    @Query('username') username?: string,
+    @Query('userId') userId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ): Promise<TotalHoursPerUserDto[]> {
+    return this.progressService.getTotalHoursPerUser(
+      username,
+      userId ? parseInt(userId, 10) : undefined,
+      startDate,
+      endDate,
     );
   }
 }

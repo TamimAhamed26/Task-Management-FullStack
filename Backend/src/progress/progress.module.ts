@@ -8,9 +8,10 @@ import { FileService } from '../file/file.service';
 import { EmailService } from '../email/email.service';
 import { UserService } from 'src/user/user.service';
 import { TaskComment } from 'src/entities/TaskComment.entity';
+import { TimeLog } from 'src/entities/time-log.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Task, User])],
+  imports: [TypeOrmModule.forFeature([Task, User,TimeLog])],
   controllers: [ProgressController],
   providers: [ProgressService, FileService, EmailService, UserService],
 })

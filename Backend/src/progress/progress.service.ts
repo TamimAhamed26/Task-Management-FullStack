@@ -10,7 +10,8 @@ import { UserService } from 'src/user/user.service';
 import { FileService } from 'src/file/file.service';
 import { EmailService } from 'src/email/email.service';
 import * as path from 'path';
-import { AverageCompletionTimeDto, TaskCompletionRateDto, WorkloadDistributionDto } from './dto/progress.dto';
+import { AverageCompletionTimeDto, TaskCompletionRateDto, TotalHoursPerTaskDto, TotalHoursPerUserDto, WorkloadDistributionDto } from './dto/progress.dto';
+import { TimeLog } from 'src/entities/time-log.entity';
 
 
   @Injectable()
@@ -18,7 +19,8 @@ import { AverageCompletionTimeDto, TaskCompletionRateDto, WorkloadDistributionDt
     constructor(
       @InjectRepository(Task)
       private taskRepository: Repository<Task>,
-  
+      @InjectRepository(TimeLog)
+      private timeLogRepository: Repository<TimeLog>,
       private readonly userService: UserService,
       private readonly fileService: FileService,
       private readonly emailService: EmailService,
@@ -333,6 +335,77 @@ async generateWeeklyReportPDF(): Promise<Buffer> {
     return result.map(row => ({
       username: row.username || 'Unassigned',
       taskCount: parseInt(row.taskCount, 10),
+    }));
+  }
+
+  async getTotalHoursPerTask(taskId: number): Promise<TotalHoursPerTaskDto> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const result = await this.timeLogRepository
+      .createQueryBuilder('timeLog')
+      .select('SUM(timeLog.hours)', 'totalHours')
+      .where('timeLog.taskId = :taskId', { taskId })
+      .getRawOne();
+
+    const totalHours = result.totalHours ? parseFloat(result.totalHours) : 0;
+
+    return {
+      taskId,
+      title: task.title,
+      totalHours: parseFloat(totalHours.toFixed(2)),
+    };
+  }
+
+  async getTotalHoursPerUser(
+    username?: string,
+    userId?: number,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<TotalHoursPerUserDto[]> {
+    const query = this.timeLogRepository
+      .createQueryBuilder('timeLog')
+      .leftJoin('timeLog.loggedBy', 'user')
+      .select('user.username', 'username')
+      .addSelect('SUM(timeLog.hours)', 'totalHours')
+      .groupBy('user.username');
+
+    if (username && userId) {
+      throw new BadRequestException('Provide either username or userId, not both.');
+    }
+
+    if (username) {
+      query.where('user.username = :username', { username });
+    } else if (userId) {
+      query.where('user.id = :userId', { userId });
+    }
+
+    if (startDate && endDate) {
+      if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+        throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
+      }
+      const endDateAdjusted = new Date(endDate);
+      endDateAdjusted.setHours(23, 59, 59, 999);
+      query.andWhere('timeLog.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate: endDateAdjusted.toISOString(),
+      });
+    }
+
+    const result = await query
+      .orderBy('SUM(timeLog.hours)', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      if (username || userId) {
+        throw new NotFoundException('No time logs found for the specified collaborator.');
+      }
+      return [];
+    }
+
+    return result.map(row => ({
+      username: row.username,
+      totalHours: parseFloat(parseFloat(row.totalHours).toFixed(2)),
     }));
   }
 }

@@ -14,9 +14,10 @@ import { FileService } from 'src/file/file.service';
 import { FileModule } from '../file/file.module'; 
 import { Notification } from 'src/entities/Notification.entity'; 
 import { TaskHistory } from 'src/entities/task_history.entity';
+import { TimeLog } from 'src/entities/time-log.entity';
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification,TaskHistory]),
+    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification,TimeLog,TaskHistory]),
     UserModule,     FileModule, 
 
   ],

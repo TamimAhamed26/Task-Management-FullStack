@@ -23,6 +23,7 @@ import { TaskAttachment } from './entities/task-attachment.entity';
 import { Notification } from './entities/Notification.entity';
 import { TaskHistory } from './entities/task_history.entity';
 import { PaymentHistory } from './entities/payment-history.entity';
+import { TimeLog } from './entities/time-log.entity';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { PaymentHistory } from './entities/payment-history.entity';
       username: 'postgres',
       password: 'root',
       database: 'task_management_db',
-      entities: [User, Role, Token, Task,TaskComment,PaymentHistory,TaskAttachment,Notification,TaskHistory],
+      entities: [User, Role, Token,TimeLog, Task,TaskComment,PaymentHistory,TaskAttachment,Notification,TaskHistory],
       synchronize: true,
       autoLoadEntities: true,
     }),

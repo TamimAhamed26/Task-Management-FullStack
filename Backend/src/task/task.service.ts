@@ -19,6 +19,8 @@ import { Notification } from '../entities/Notification.entity';
 import { TaskHistory } from '../entities/task_history.entity';
 import { TaskHistoryDto } from './dto/task-history.dto';
 import { FileService } from 'src/file/file.service';
+import { TimeLog } from 'src/entities/time-log.entity';
+import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 
 @Injectable()
 export class TaskService {
@@ -36,6 +38,9 @@ export class TaskService {
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
     private readonly fileService: FileService,
+    @InjectRepository(TimeLog) 
+    private readonly timeLogRepository: Repository<TimeLog>,
+
   ) {}
 
   private async logTaskHistory(
@@ -122,6 +127,8 @@ export class TaskService {
       title: task.title,
       description: task.description,
       status: task.status,
+
+    
       priority: task.priority,
       category: task.category,
       dueDate: task.dueDate,
@@ -447,6 +454,93 @@ export class TaskService {
       action: entry.action,
       details: entry.details,
       timestamp: entry.timestamp,
+    }));
+  }
+
+  async createTimeLog(taskId: number, userId: number, timeLogDto: CreateTimeLogDto): Promise<TimeLogDto> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignedTo'],
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const isManager = user.role.name === 'Manager';
+    const isAssigned = user.id === task.assignedTo?.id;
+
+    if (!isManager && !isAssigned) {
+      throw new ForbiddenException('Only managers or assigned users can log time.');
+    }
+
+    if (timeLogDto.hours <= 0) {
+      throw new BadRequestException('Hours must be greater than zero.');
+    }
+
+    const timeLog = this.timeLogRepository.create({
+      task,
+      taskId,
+      loggedBy: user,
+      hours: timeLogDto.hours,
+      description: timeLogDto.description,
+    });
+
+    const savedTimeLog = await this.timeLogRepository.save(timeLog);
+
+    await this.logTaskHistory(task, userId, 'Time Logged', {
+      timeLogId: savedTimeLog.id,
+      hours: savedTimeLog.hours,
+      loggedByUsername: user.username,
+      description: savedTimeLog.description,
+    });
+
+    return {
+      id: savedTimeLog.id,
+      taskId: savedTimeLog.taskId,
+      loggedByUsername: user.username,
+      hours: savedTimeLog.hours,
+      description: savedTimeLog.description,
+      createdAt: savedTimeLog.createdAt,
+    };
+  }
+
+  async getTimeLogs(taskId: number, userId: number): Promise<TimeLogDto[]> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignedTo'],
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const isManager = user.role.name === 'Manager';
+    const isAssigned = user.id === task.assignedTo?.id;
+
+    if (!isManager && !isAssigned) {
+      throw new ForbiddenException('Only managers or assigned users can view time logs.');
+    }
+
+    const timeLogs = await this.timeLogRepository.find({
+      where: { taskId },
+      relations: ['loggedBy'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return timeLogs.map(log => ({
+      id: log.id,
+      taskId: log.taskId,
+      loggedByUsername: log.loggedBy.username,
+      hours: log.hours,
+      description: log.description,
+      createdAt: log.createdAt,
     }));
   }
 }

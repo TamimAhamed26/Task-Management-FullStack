@@ -25,6 +25,7 @@ import { TaskAttachmentDto } from './dto/task-attachment.dto';
 import { TaskHistoryDto } from './dto/task-history.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { NotificationDto } from './dto/notification.dto';
+import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
@@ -154,5 +155,24 @@ export class TaskController {
     @GetUser('id') userId: number,
   ): Promise<TaskHistoryDto[]> {
     return this.taskService.getTaskHistory(id, userId);
+  }
+  
+  @Post(':id/time-logs')
+  @Roles('MANAGER', 'COLLABORATOR')
+  async createTimeLog(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() createTimeLogDto: CreateTimeLogDto,
+    @GetUser('id') userId: number,
+  ): Promise<TimeLogDto> {
+    return this.taskService.createTimeLog(id, userId, createTimeLogDto);
+  }
+
+  @Get(':id/time-logs')
+  @Roles('MANAGER', 'COLLABORATOR')
+  async getTimeLogs(
+    @Param('id', ParseIntPipe) id: number,
+    @GetUser('id') userId: number,
+  ): Promise<TimeLogDto[]> {
+    return this.taskService.getTimeLogs(id, userId);
   }
 }
