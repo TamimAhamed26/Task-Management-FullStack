@@ -11,6 +11,8 @@ export class TaskDto {
   assignedToUsername?: string;
   approvedByUsername?: string;
   isCompleted: boolean;
+  parentTaskId?: number; // Added for subtask
+  subtasks?: TaskDto[]; // Added for subtask
   createdAt: Date;
   updatedAt: Date;
 }

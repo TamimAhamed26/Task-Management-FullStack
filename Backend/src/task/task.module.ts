@@ -13,10 +13,11 @@ import { TaskAttachment } from 'src/entities/task-attachment.entity';
 import { FileService } from 'src/file/file.service';
 import { FileModule } from '../file/file.module'; 
 import { Notification } from 'src/entities/Notification.entity'; 
+import { TaskHistory } from 'src/entities/task_history.entity';
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification]),
-    UserModule,      FileModule, 
+    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification,TaskHistory]),
+    UserModule,     FileModule, 
 
   ],
   controllers: [TaskController],

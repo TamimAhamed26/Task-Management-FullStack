@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { ILike, QueryRunner, Repository } from 'typeorm';
 import { PriorityLevel, Task, TaskStatus } from '../entities/task.entity';
 import { User } from '../entities/user.entity';
 import { TaskDto } from './dto/task.dto';
@@ -14,10 +14,11 @@ import { TaskCommentDto } from './dto/comment.dto';
 import { TaskAttachmentDto } from './dto/task-attachment.dto';
 import { TaskComment } from '../entities/TaskComment.entity';
 import { TaskAttachment } from '../entities/task-attachment.entity';
-import { FileService } from '../file/file.service';
 import { NotificationDto } from './dto/notification.dto';
-import { Notification } from 'src/entities/Notification.entity'; // adjust the path as needed
-import { Console } from 'console';
+import { Notification } from '../entities/Notification.entity';
+import { TaskHistory } from '../entities/task_history.entity';
+import { TaskHistoryDto } from './dto/task-history.dto';
+import { FileService } from 'src/file/file.service';
 
 @Injectable()
 export class TaskService {
@@ -30,11 +31,38 @@ export class TaskService {
     private readonly commentRepository: Repository<TaskComment>,
     @InjectRepository(TaskAttachment)
     private readonly attachmentRepository: Repository<TaskAttachment>,
-    private readonly fileService: FileService,
+    @InjectRepository(TaskHistory)
+    private readonly taskHistoryRepository: Repository<TaskHistory>,
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
+    private readonly fileService: FileService,
   ) {}
 
+  private async logTaskHistory(
+    task: Task,
+    userId: number,
+    action: string,
+    details: any,
+    queryRunner?: QueryRunner,
+  ): Promise<void> {
+    const user = queryRunner
+      ? await queryRunner.manager.findOne(User, { where: { id: userId } })
+      : await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const history = this.taskHistoryRepository.create({
+      taskId: task.id, // Use taskId directly
+      changedBy: user,
+      action,
+      details,
+    });
+
+    if (queryRunner) {
+      await queryRunner.manager.save(history);
+    } else {
+      await this.taskHistoryRepository.save(history);
+    }
+  }
   async getTaskById(taskId: number): Promise<TaskDto> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
@@ -60,7 +88,7 @@ export class TaskService {
     };
   }
 
-  async assignCollaborator(taskId: number, collaboratorId: number): Promise<Task> {
+  async assignCollaborator(taskId: number, collaboratorId: number, userId: number): Promise<Task> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) throw new NotFoundException('Task not found.');
 
@@ -69,12 +97,18 @@ export class TaskService {
       relations: ['role'],
     });
 
-    if (!collaborator || collaborator.role?.id !== 3) {
+    if (!collaborator || collaborator.role?.name !== 'Collaborator') {
       throw new BadRequestException('Assigned user must be a Collaborator.');
     }
 
     task.assignedTo = collaborator;
-    return this.taskRepository.save(task);
+    const updatedTask = await this.taskRepository.save(task);
+
+    await this.logTaskHistory(task, userId, 'Collaborator Assigned', {
+      collaboratorUsername: collaborator.username,
+    });
+
+    return updatedTask;
   }
 
   async getPendingTasks(): Promise<TaskDto[]> {
@@ -118,122 +152,153 @@ export class TaskService {
     });
   }
 
-  async rejectTask(taskId: number): Promise<void> {
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+  async rejectTask(taskId: number, userId: number): Promise<void> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['createdBy'],
+    });
+    if (!task) throw new NotFoundException('Task not found');
 
-    if (!task) throw new NotFoundException('Task not found.');
     if (task.status !== TaskStatus.COMPLETED) {
-      throw new BadRequestException('Only COMPLETED tasks can be deleted.');
+      throw new BadRequestException('Only completed tasks can be rejected');
     }
 
-    await this.taskRepository.remove(task);
+    const queryRunner = this.taskRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Log history with taskId
+      await this.logTaskHistory(
+        task,
+        userId,
+        'Task Rejected',
+        {
+          status: task.status,
+          title: task.title, // Include title for reference
+        },
+        queryRunner,
+      );
+
+      // Delete task
+      await queryRunner.manager.remove(task);
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
-
-  async markTaskAsCompleted(taskId: number): Promise<Task> {
+  async markTaskAsCompleted(taskId: number, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
 
-    if (!task) throw new NotFoundException('Task not found.');
-    if (task.status === TaskStatus.COMPLETED && task.isCompleted) {
-      throw new BadRequestException('Task is already marked as completed.');
+    if (task.isCompleted) {
+      throw new BadRequestException('Task is already completed');
     }
 
+    const oldStatus = task.status;
     task.status = TaskStatus.COMPLETED;
     task.isCompleted = true;
-
-    return this.taskRepository.save(task);
-  }
-
-  async setDeadlineAndPriority(taskId: number, updates: SetDeadlinePriorityDto): Promise<void> {
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
-
-    if (!task) throw new NotFoundException('Task not found.');
-    if (task.status === TaskStatus.COMPLETED) {
-      throw new BadRequestException('Cannot change the deadline for a completed task.');
-    }
-
-    if (updates.dueDate && new Date(updates.dueDate) < new Date()) {
-      throw new BadRequestException('Due date cannot be in the past.');
-    }
-
-    if (updates.priority && !Object.values(PriorityLevel).includes(updates.priority)) {
-      throw new BadRequestException('Invalid priority level.');
-    }
-
-    if (updates.dueDate) task.dueDate = new Date(updates.dueDate);
-    if (updates.priority) task.priority = updates.priority;
-
     await this.taskRepository.save(task);
-  }
 
- async createTaskComment(taskId: number, userId: number, content: string): Promise<TaskCommentDto> {
-  const task = await this.taskRepository.findOne({
-    where: { id: taskId },
-    relations: ['assignedTo'], 
-  });
-  if (!task) throw new NotFoundException('Task not found.');
-
-  const user = await this.userRepository.findOne({
-    where: { id: userId },
-    relations: ['role'],
-  });
-  if (!user) throw new NotFoundException('User not found.');
-
-  const isManager = user.role?.name === 'Manager';
-  const isAssigned = user.id === task.assignedTo?.id;
-
-  if (!isManager && !isAssigned) {
-    throw new ForbiddenException('Only managers or assigned users can comment.');
-  }
-
-  const mentionUsernames = content.match(/@(\w+)/g)?.map(m => m.slice(1)) || [];
-
-  const mentionedUsers = mentionUsernames.length > 0
-    ? await this.userRepository.find({
-        where: mentionUsernames.map(username => ({
-          username,
-          role: { name: 'Collaborator' },
-        })),
-        relations: ['role'],
-        select: ['id', 'username'],
-      })
-    : [];
-
-  if (mentionedUsers.length < mentionUsernames.length) {
-    const invalidUsernames = mentionUsernames.filter(
-      name => !mentionedUsers.some(u => u.username === name)
-    );
-    throw new BadRequestException(`Invalid or unauthorized mentions: ${invalidUsernames.join(', ')}`);
-  }
-
-  for (const mentionedUser of mentionedUsers) {
-    const notification = this.notificationRepository.create({
-      recipient: mentionedUser,
-      type: 'mention',
-      message: `${user.username} mentioned you in a comment on Task #${taskId}`,
-      relatedTaskId: taskId,
+    await this.logTaskHistory(task, userId, 'Status Changed', {
+      oldStatus,
+      newStatus: TaskStatus.COMPLETED,
     });
-    await this.notificationRepository.save(notification);
   }
 
-  const comment = this.commentRepository.create({
-    task,
-    author: user,
-    content,
-    mentions: mentionedUsers.map(u => u.id),
-  });
+  async setDeadlineAndPriority(taskId: number, body: SetDeadlinePriorityDto, userId: number): Promise<void> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
 
-  const savedComment = await this.commentRepository.save(comment);
+    const { dueDate, priority } = body;
 
-  return {
-    id: savedComment.id,
-    taskId: savedComment.task.id,
-    authorUsername: savedComment.author.username,
-    content: savedComment.content,
-    mentions: savedComment.mentions,
-    createdAt: savedComment.createdAt,
-  };
-}
+    if (
+      dueDate &&
+      ((typeof dueDate === 'string' && isNaN(Date.parse(dueDate))) ||
+        (dueDate instanceof Date && isNaN(dueDate.getTime())))
+    ) {
+      throw new BadRequestException('Invalid due date format');
+    }
 
+    const oldDueDate = task.dueDate?.toISOString();
+    const oldPriority = task.priority;
+
+    task.dueDate = dueDate ? new Date(dueDate) : undefined; // Use undefined instead of null
+    task.priority = priority || task.priority;
+    await this.taskRepository.save(task);
+
+    await this.logTaskHistory(task, userId, 'Deadline and Priority Updated', {
+      oldDueDate,
+      newDueDate: task.dueDate?.toISOString(),
+      oldPriority,
+      newPriority: task.priority,
+    });
+  }
+
+  async createTaskComment(taskId: number, userId: number, content: string): Promise<TaskCommentDto> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignedTo'],
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const isManager = user.role.name === 'Manager';
+    const isAssigned = user.id === task.assignedTo?.id;
+
+    if (!isManager && !isAssigned) {
+      throw new ForbiddenException('Only managers or assigned users can comment.');
+    }
+
+    const mentionUsernames = content.match(/@(\w+)/g)?.map(m => m.slice(1)) || [];
+    const mentionedUsers = mentionUsernames.length > 0
+      ? await this.userRepository.find({
+          where: mentionUsernames.map(username => ({ username, role: { name: 'Collaborator' } })),
+          relations: ['role'],
+          select: ['id', 'username'],
+        })
+      : [];
+
+    if (mentionedUsers.length < mentionUsernames.length) {
+      const invalidUsernames = mentionUsernames.filter(
+        name => !mentionedUsers.some(u => u.username === name),
+      );
+      throw new BadRequestException(`Invalid or unauthorized mentions: ${invalidUsernames.join(', ')}`);
+    }
+
+    const comment = this.commentRepository.create({
+      task,
+      author: user,
+      content,
+      mentions: mentionedUsers.map(u => u.id),
+    });
+
+    const savedComment = await this.commentRepository.save(comment);
+
+    await this.logTaskHistory(task, userId, 'Comment Added', {
+      commentId: savedComment.id,
+      content: savedComment.content,
+      authorUsername: user.username,
+    });
+
+    return {
+      id: savedComment.id,
+      taskId: savedComment.task.id,
+      authorUsername: savedComment.author.username,
+      content: savedComment.content,
+      mentions: savedComment.mentions,
+      createdAt: savedComment.createdAt,
+    };
+  }
 
   async getTaskComments(taskId: number): Promise<TaskCommentDto[]> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
@@ -257,12 +322,15 @@ export class TaskService {
 
   async uploadTaskAttachment(taskId: number, userId: number, file: Express.Multer.File): Promise<TaskAttachmentDto> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('Task not found.');
+    if (!task) throw new NotFoundException('Task not found');
 
-    const user = await this.userRepository.findOne({ where: { id: userId }, relations: ['role'] });
-    if (!user) throw new NotFoundException('User not found.');
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
 
-    if (user.role.id !== 2 && user.id !== task.assignedTo?.id) {
+    if (user.role.name !== 'Manager' && user.id !== task.assignedTo?.id) {
       throw new ForbiddenException('Only managers or assigned users can upload attachments.');
     }
 
@@ -276,6 +344,12 @@ export class TaskService {
     });
 
     const savedAttachment = await this.attachmentRepository.save(attachment);
+
+    await this.logTaskHistory(task, userId, 'Attachment Uploaded', {
+      attachmentId: savedAttachment.id,
+      fileName: savedAttachment.fileName,
+      uploaderUsername: user.username,
+    });
 
     return {
       id: savedAttachment.id,
@@ -307,51 +381,72 @@ export class TaskService {
     }));
   }
 
-// services/task.service.ts
-// services/task.service.ts
-async getUserNotifications(userId: number): Promise<NotificationDto[]> {
-  const user = await this.userRepository.findOne({
-    where: { id: userId },
-    relations: ['role'],
-  });
-  if (!user) throw new NotFoundException('User not found');
+  async getUserNotifications(userId: number): Promise<NotificationDto[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
 
-  console.log('User role:', user.role.name);
+    console.log('User role:', user.role.name);
 
-  const notifications = await this.notificationRepository.find({
-    where: { recipient: { id: userId } },
-    relations: ['task'],
-    order: { createdAt: 'DESC' },
-  });
+    const notifications = await this.notificationRepository.find({
+      where: { recipient: { id: userId } },
+      relations: ['task'],
+      order: { createdAt: 'DESC' },
+    });
 
-  console.log('Notifications:', notifications);
-  return notifications.map(n => ({
-    id: n.id,
-    type: n.type,
-    message: n.message,
-    isRead: n.isRead,
-    relatedTaskId: n.relatedTaskId,
-    taskTitle: n.task?.title || 'Unknown Task',
-    createdAt: n.createdAt,
-  }));
-}
-async markNotificationAsRead(notificationId: number): Promise<{ message: string }> {
-  const notification = await this.notificationRepository.findOne({ where: { id: notificationId } });
-
-  if (!notification) {
-    throw new NotFoundException('Notification not found.');
+    console.log('Notifications:', notifications);
+    return notifications.map(n => ({
+      id: n.id,
+      type: n.type,
+      message: n.message,
+      isRead: n.isRead,
+      relatedTaskId: n.relatedTaskId,
+      taskTitle: n.task?.title || 'Unknown Task',
+      createdAt: n.createdAt,
+    }));
   }
 
-  if (notification.isRead) {
-    return { message: 'Notification already marked as read.' };
+  async markNotificationAsRead(notificationId: number, userId: number): Promise<void> {
+    const notification = await this.notificationRepository.findOne({
+      where: { id: notificationId, recipient: { id: userId } },
+    });
+    if (!notification) throw new NotFoundException('Notification not found or not authorized');
+
+    notification.isRead = true;
+    await this.notificationRepository.save(notification);
   }
 
-  notification.isRead = true;
-  await this.notificationRepository.save(notification);
+  async getTaskHistory(taskId: number, userId: number): Promise<TaskHistoryDto[]> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignedTo'],
+    });
 
-  return { message: 'Notification marked as read.' };
-}
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
 
+    if (user.role.name !== 'Manager' && user.id !== task?.assignedTo?.id) {
+      throw new ForbiddenException('Only managers or assigned users can view task history');
+    }
 
+    const history = await this.taskHistoryRepository.find({
+      where: { taskId },
+      relations: ['changedBy'],
+      order: { timestamp: 'DESC' },
+    });
 
+    return history.map(entry => ({
+      id: entry.id,
+      taskId: entry.taskId,
+      changedByUsername: entry.changedBy?.username || 'Unknown',
+      action: entry.action,
+      details: entry.details,
+      timestamp: entry.timestamp,
+    }));
+  }
 }

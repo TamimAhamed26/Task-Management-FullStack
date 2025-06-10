@@ -21,6 +21,8 @@ import { ConfigModule } from '@nestjs/config';
 import { TaskComment } from './entities/TaskComment.entity';
 import { TaskAttachment } from './entities/task-attachment.entity';
 import { Notification } from './entities/Notification.entity';
+import { TaskHistory } from './entities/task_history.entity';
+import { PaymentHistory } from './entities/payment-history.entity';
 
 @Module({
   imports: [
@@ -38,7 +40,7 @@ import { Notification } from './entities/Notification.entity';
       username: 'postgres',
       password: 'root',
       database: 'task_management_db',
-      entities: [User, Role, Token, Task,TaskComment,TaskAttachment,Notification],
+      entities: [User, Role, Token, Task,TaskComment,PaymentHistory,TaskAttachment,Notification,TaskHistory],
       synchronize: true,
       autoLoadEntities: true,
     }),

@@ -45,7 +45,7 @@ export class Task {
   category?: string;
 
   @Column({ nullable: true, type: 'timestamp' })
-  dueDate?: Date;
+  dueDate?: Date | undefined;
 
   @ManyToOne(() => User, { eager: true })
   createdBy: User;
