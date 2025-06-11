@@ -13,6 +13,7 @@ import {
   UploadedFile,
   UseGuards,
   ValidationPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { PriorityLevel, Task } from '../entities/task.entity';
@@ -28,6 +29,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { NotificationDto } from './dto/notification.dto';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
+import { ManagerOverviewDto, OverdueTaskDto, ProjectDto } from './dto/ManagerReporting.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
@@ -100,25 +102,35 @@ export class TaskController {
     return { message: 'COMPLETED task deleted successfully.' };
   }
 
-  @Post(':id/comments')
+@Post(':id/comments')
   @Roles('MANAGER', 'COLLABORATOR')
   async createTaskComment(
     @Param('id', ParseIntPipe) id: number,
-    @Body('content') content: string,
     @GetUser('id') userId: number,
+    @Body('content') content: string,
+    @Body('parentCommentId') parentCommentId?: string, 
   ): Promise<TaskCommentDto> {
     if (!content?.trim()) {
       throw new BadRequestException('Comment content cannot be empty.');
     }
-    return this.taskService.createTaskComment(id, userId, content);
+
+    let parsedParentCommentId: number | undefined;
+    if (parentCommentId) {
+      const parsed = parseInt(parentCommentId, 10);
+      if (isNaN(parsed)) {
+        throw new BadRequestException('parentCommentId must be a valid number.');
+      }
+      parsedParentCommentId = parsed;
+    }
+
+    return this.taskService.createTaskComment(id, userId, content, parsedParentCommentId);
   }
 
   @Get(':id/comments')
-  @Roles('MANAGER')
+  @Roles('MANAGER', 'COLLABORATOR')
   async getTaskComments(@Param('id', ParseIntPipe) id: number): Promise<TaskCommentDto[]> {
     return this.taskService.getTaskComments(id);
   }
-
   @Post(':id/attachments')
   @Roles('MANAGER')
   @UseInterceptors(FileInterceptor('file'))
@@ -177,5 +189,55 @@ export class TaskController {
     @GetUser('id') userId: number,
   ): Promise<TimeLogDto[]> {
     return this.taskService.getTimeLogs(id, userId);
+  }
+
+  
+  @Get('overview')
+  @Roles('MANAGER')
+  async getManagerOverview(@GetUser('id') userId: number): Promise<ManagerOverviewDto> {
+    return this.taskService.getManagerOverview(userId);
+  }
+
+  @Get('reports/overdue')
+  @Roles('MANAGER')
+  async getOverdueTasks(@GetUser('id') userId: number): Promise<OverdueTaskDto[]> {
+    return this.taskService.getOverdueTasks(userId);
+  }
+
+  @Get('projects')
+  @Roles('MANAGER', 'COLLABORATOR')
+  async getProjects(@GetUser('id') userId: number): Promise<ProjectDto[]> {
+    return this.taskService.getProjects(userId);
+  }
+
+  @Get('projects/:id/tasks')
+  @Roles('MANAGER', 'COLLABORATOR')
+  async getProjectTasks(
+    @Param('id', ParseIntPipe) projectId: number,
+    @GetUser('id') userId: number,
+   @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+@Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ): Promise<{ data: TaskDto[]; total: number; page: number; limit: number }> {
+    return this.taskService.getProjectTasks(projectId, userId, page, limit);
+  }
+
+  @Post('projects/:id/team/add')
+  @Roles('MANAGER')
+  async addTeamMember(
+    @Param('id', ParseIntPipe) projectId: number,
+    @Body('userId', ParseIntPipe) memberId: number,
+    @GetUser('id') currentUserId: number,
+  ): Promise<void> {
+    await this.taskService.addTeamMember(projectId, currentUserId, memberId);
+  }
+
+  @Post('projects/:id/team/remove')
+  @Roles('MANAGER')
+  async removeTeamMember(
+    @Param('id', ParseIntPipe) projectId: number,
+    @Body('userId', ParseIntPipe) memberId: number,
+    @GetUser('id') currentUserId: number,
+  ): Promise<void> {
+    await this.taskService.removeTeamMember(projectId, currentUserId, memberId);
   }
 }

@@ -9,7 +9,7 @@ export class Notification {
   id: number;
 
   @Column()
-  type: string;
+  notificationType: string;
 
   @Column()
   message: string;

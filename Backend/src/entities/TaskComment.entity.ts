@@ -19,6 +19,14 @@ export class TaskComment {
   @Column('simple-array', { nullable: true })
   mentions: number[]; 
 
+
+@Column({ nullable: true })
+  parentCommentId: number;
+
+  @ManyToOne(() => TaskComment, { nullable: true, onDelete: 'CASCADE' })
+  parentComment: TaskComment;
+
+
   @CreateDateColumn()
   createdAt: Date;
 }

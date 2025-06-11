@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, QueryRunner, Repository } from 'typeorm';
+import { ILike, LessThan, QueryRunner, Repository } from 'typeorm';
 import { PriorityLevel, Task, TaskStatus } from '../entities/task.entity';
 import { User } from '../entities/user.entity';
 import { TaskDto } from './dto/task.dto';
@@ -22,6 +22,9 @@ import { FileService } from 'src/file/file.service';
 import { TimeLog } from 'src/entities/time-log.entity';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
+import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskStatusSummary } from './dto/ManagerReporting.dto';
+import { Project } from 'src/entities/project.entity';
+import { Team } from 'src/entities/team.entity';
 
 @Injectable()
 export class TaskService {
@@ -38,6 +41,10 @@ export class TaskService {
     private readonly taskHistoryRepository: Repository<TaskHistory>,
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
+      @InjectRepository(Project)
+    private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Team)
+    private readonly teamRepository: Repository<Team>,
     private readonly fileService: FileService,
     @InjectRepository(TimeLog) 
     private readonly timeLogRepository: Repository<TimeLog>,
@@ -318,7 +325,75 @@ export class TaskService {
     });
   }
 
-  async createTaskComment(taskId: number, userId: number, content: string): Promise<TaskCommentDto> {
+  async getManagerOverview(userId: number): Promise<ManagerOverviewDto> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can access this overview.');
+    }
+
+    // Total tasks
+    const totalTasks = await this.taskRepository.count();
+
+    // Tasks by status
+    const statusSummary: TaskStatusSummary[] = [];
+    for (const status of Object.values(TaskStatus)) {
+      const count = await this.taskRepository.count({ where: { status } });
+      statusSummary.push({ status, count });
+    }
+
+    // Tasks by assignee
+    const assigneeSummary = await this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoin('task.assignedTo', 'user')
+      .select('user.username', 'username')
+      .addSelect('COUNT(task.id)', 'taskCount')
+      .where('task.assignedTo IS NOT NULL')
+      .groupBy('user.username')
+      .orderBy('COUNT(task.id)', 'DESC')
+      .getRawMany();
+
+    return {
+      totalTasks,
+      statusSummary,
+      assigneeSummary: assigneeSummary.map(row => ({
+        username: row.username || 'Unassigned',
+        taskCount: parseInt(row.taskCount, 10),
+      })),
+    };
+  }
+
+  async getOverdueTasks(userId: number): Promise<OverdueTaskDto[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can access overdue tasks.');
+    }
+
+    const currentDate = new Date('2025-06-11T19:29:00+06:00'); // Current date/time in +06 timezone
+    const tasks = await this.taskRepository.find({
+      where: {
+        dueDate: LessThan(currentDate),
+        isCompleted: false,
+      },
+      relations: ['assignedTo'],
+      order: { dueDate: 'ASC' },
+    });
+
+    return tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      assigneeUsername: task.assignedTo?.username || 'Unassigned',
+      dueDate: task.dueDate,
+      priority: task.priority,
+      status: task.status,
+    }));
+  }
+ async createTaskComment(taskId: number, userId: number, content: string, parentCommentId?: number): Promise<TaskCommentDto> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
       relations: ['assignedTo'],
@@ -336,6 +411,13 @@ export class TaskService {
 
     if (!isManager && !isAssigned) {
       throw new ForbiddenException('Only managers or assigned users can comment.');
+    }
+
+    if (parentCommentId) {
+      const parentComment = await this.commentRepository.findOne({
+        where: { id: parentCommentId, task: { id: taskId } },
+      });
+      if (!parentComment) throw new NotFoundException('Parent comment not found');
     }
 
     const mentionUsernames = content.match(/@(\w+)/g)?.map(m => m.slice(1)) || [];
@@ -359,14 +441,31 @@ export class TaskService {
       author: user,
       content,
       mentions: mentionedUsers.map(u => u.id),
+      parentCommentId,
     });
 
     const savedComment = await this.commentRepository.save(comment);
+
+    // Create notification for mentioned users and task assignee
+    if (mentionedUsers.length > 0 || task.assignedTo) {
+      const recipients = new Set([...mentionedUsers.map(u => u.id), task.assignedTo?.id].filter(id => id && id !== userId));
+      for (const recipientId of recipients) {
+        const notification = this.notificationRepository.create({
+          notificationType: 'COMMENT',
+          message: `${user.username} commented on task: ${task.title}`,
+          recipient: { id: recipientId },
+          relatedTaskId: task.id,
+          task,
+        });
+        await this.notificationRepository.save(notification);
+      }
+    }
 
     await this.logTaskHistory(task, userId, 'Comment Added', {
       commentId: savedComment.id,
       content: savedComment.content,
       authorUsername: user.username,
+      parentCommentId: savedComment.parentCommentId,
     });
 
     return {
@@ -376,6 +475,7 @@ export class TaskService {
       content: savedComment.content,
       mentions: savedComment.mentions,
       createdAt: savedComment.createdAt,
+      parentCommentId: savedComment.parentCommentId,
     };
   }
 
@@ -385,20 +485,39 @@ export class TaskService {
 
     const comments = await this.commentRepository.find({
       where: { task: { id: taskId } },
-      relations: ['task', 'author'],
+      relations: ['task', 'author', 'parentComment'],
       order: { createdAt: 'ASC' },
     });
 
-    return comments.map(comment => ({
-      id: comment.id,
-      taskId: comment.task.id,
-      authorUsername: comment.author.username,
-      content: comment.content,
-      mentions: comment.mentions,
-      createdAt: comment.createdAt,
-    }));
-  }
+    // Build threaded comment structure
+    const commentMap = new Map<number, TaskCommentDto>();
+    const threadedComments: TaskCommentDto[] = [];
 
+    for (const comment of comments) {
+      const commentDto: TaskCommentDto = {
+        id: comment.id,
+        taskId: comment.task.id,
+        authorUsername: comment.author.username,
+        content: comment.content,
+        mentions: comment.mentions,
+        createdAt: comment.createdAt,
+        parentCommentId: comment.parentCommentId,
+        children: [], // Initialize children array
+      };
+      commentMap.set(comment.id, commentDto);
+
+      if (!comment.parentCommentId) {
+        threadedComments.push(commentDto);
+      } else {
+        const parent = commentMap.get(comment.parentCommentId);
+        if (parent) {
+          parent.children = parent.children ? [...parent.children, commentDto] : [commentDto];
+        }
+      }
+    }
+
+    return threadedComments;
+  }
   async uploadTaskAttachment(taskId: number, userId: number, file: Express.Multer.File): Promise<TaskAttachmentDto> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) throw new NotFoundException('Task not found');
@@ -478,7 +597,7 @@ export class TaskService {
     console.log('Notifications:', notifications);
     return notifications.map(n => ({
       id: n.id,
-      type: n.type,
+      notificationType: n.notificationType,
       message: n.message,
       isRead: n.isRead,
       relatedTaskId: n.relatedTaskId,
@@ -614,5 +733,187 @@ export class TaskService {
       description: log.description,
       createdAt: log.createdAt,
     }));
+  }
+
+
+  
+  async getProjects(userId: number): Promise<ProjectDto[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role', 'teams'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const isManager = user.role.name === 'Manager';
+    const isCollaborator = user.role.name === 'Collaborator';
+    if (!isManager && !isCollaborator) {
+      throw new ForbiddenException('Only managers or collaborators can view projects');
+    }
+
+    const projects = await this.projectRepository
+      .createQueryBuilder('project')
+      .leftJoinAndSelect('project.team', 'team')
+      .leftJoinAndSelect('team.members', 'members')
+      .leftJoinAndSelect('project.owner', 'owner')
+      .where('members.id = :userId OR project.ownerId = :userId', { userId })
+      .getMany();
+
+    return projects.map(project => ({
+      id: project.id,
+      name: project.name,
+      description: project.description || '',
+      ownerUsername: project.owner.username,
+      teamMembers: project.team?.members.map(member => member.username) || [],
+    }));
+  }
+
+  async getProjectTasks(projectId: number, userId: number, page: number = 1, limit: number = 10): Promise<{ data: TaskDto[]; total: number; page: number; limit: number }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role', 'teams'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const isManager = user.role.name === 'Manager';
+    const isCollaborator = user.role.name === 'Collaborator';
+    if (!isManager && !isCollaborator) {
+      throw new ForbiddenException('Only managers or collaborators can view project tasks');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['team', 'team.members'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const isMember = project.team?.members.some(member => member.id === userId) || project.ownerId === userId;
+    if (!isManager && !isMember) {
+      throw new ForbiddenException('User is not a member of this project');
+    }
+
+    const [tasks, total] = await this.taskRepository.findAndCount({
+      where: { projectId },
+      relations: ['createdBy', 'assignedTo', 'approvedBy'],
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      data: tasks.map(task => ({
+        id: task.id,
+        title: task.title,
+        description: task.description || '',
+        status: task.status,
+        priority: task.priority,
+        category: task.category || '',
+        dueDate: task.dueDate,
+        createdByUsername: task.createdBy?.username || '',
+        assignedToUsername: task.assignedTo?.username || '',
+        approvedByUsername: task.approvedBy?.username || '',
+        isCompleted: task.isCompleted,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+
+  
+  async addTeamMember(projectId: number, currentUserId: number, memberId: number): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can add team members');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['team', 'team.members'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    if (!project.team) {
+      throw new BadRequestException('Project has no associated team. Please create a team first.');
+    }
+
+    const member = await this.userRepository.findOne({
+      where: { id: memberId },
+      relations: ['role'],
+    });
+    if (!member || member.role.name !== 'Collaborator') {
+      throw new BadRequestException('Member must be a Collaborator');
+    }
+
+    if (project.team.members.some(m => m.id === memberId)) {
+      throw new BadRequestException('User is already a team member');
+    }
+
+    project.team.members.push(member);
+    await this.teamRepository.save(project.team);
+
+    const notification = this.notificationRepository.create({
+      notificationType: 'TEAM_ADDED',
+      message: `You were added to project: ${project.name}`,
+      isRead: false,
+      recipient: { id: memberId },
+      relatedTaskId: undefined,
+      task: undefined,
+      createdAt: new Date(),
+    });
+    await this.notificationRepository.save(notification);
+
+    // Optionally, fetch the member's username for a success message
+    const memberName = member.username || `ID ${memberId}`;
+    console.log(`${memberName} added to team for project: ${project.name}`);
+  }
+
+  async removeTeamMember(projectId: number, currentUserId: number, memberId: number): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can remove team members');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['team', 'team.members'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    if (!project.team) {
+      throw new BadRequestException('Project has no associated team.');
+    }
+
+    const member = await this.userRepository.findOne({
+      where: { id: memberId },
+      relations: ['role'],
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    if (!project.team.members.some(m => m.id === memberId)) {
+      throw new BadRequestException('User is not a team member');
+    }
+
+    project.team.members = project.team.members.filter(m => m.id !== memberId);
+    await this.teamRepository.save(project.team);
+
+    const notification = this.notificationRepository.create({
+      notificationType: 'TEAM_REMOVED',
+      message: `You were removed from project: ${project.name}`,
+      isRead: false,
+      recipient: { id: memberId },
+      relatedTaskId: undefined,
+      task: undefined,
+      createdAt: new Date(),
+    });
+    await this.notificationRepository.save(notification);
   }
 }

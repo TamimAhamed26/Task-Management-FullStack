@@ -1,7 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn, ManyToMany } from 'typeorm';
 import { Role } from './role.entity';
 import { Token } from './token.entity';
 import { Notification } from 'src/entities/Notification.entity'; 
+import { Project } from './project.entity';
+import { Team } from './team.entity';
 
 @Entity()
 export class User {
@@ -44,7 +46,11 @@ id: number;
 
 @OneToMany(() => Notification, notification => notification.recipient)
 notifications: Notification[];
+  @OneToMany(() => Project, project => project.owner)
+  ownedProjects: Project[];
 
+  @ManyToMany(() => Team, team => team.members)
+  teams: Team[];
 
 }
 

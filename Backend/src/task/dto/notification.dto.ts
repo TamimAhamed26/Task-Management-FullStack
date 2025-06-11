@@ -1,8 +1,9 @@
 export class NotificationDto {
   id: number;
-  type: string;
+  notificationType: string;
   message: string;
   isRead: boolean;
-  relatedTaskId?: number;
+  relatedTaskId: number;
+  taskTitle: string;
   createdAt: Date;
 }

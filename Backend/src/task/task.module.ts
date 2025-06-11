@@ -15,9 +15,11 @@ import { FileModule } from '../file/file.module';
 import { Notification } from 'src/entities/Notification.entity'; 
 import { TaskHistory } from 'src/entities/task_history.entity';
 import { TimeLog } from 'src/entities/time-log.entity';
+import { Team } from 'src/entities/team.entity';
+import { Project } from 'src/entities/project.entity';
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Task,User,TaskComment,TaskAttachment,Notification,TimeLog,TaskHistory]),
+    TypeOrmModule.forFeature([Task,User,TaskComment,Project,Team, TaskAttachment,Notification,TimeLog,TaskHistory]),
     UserModule,     FileModule, 
 
   ],

@@ -5,4 +5,7 @@ export interface TaskCommentDto {
   content: string;
   mentions: number[];
   createdAt: Date;
+    parentCommentId?: number;
+  children?: TaskCommentDto[];
+
 }

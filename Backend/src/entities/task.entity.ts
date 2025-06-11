@@ -10,6 +10,7 @@ import {
 import { User } from './user.entity';
 import { TaskComment } from './TaskComment.entity';
 import { TaskAttachment } from './task-attachment.entity';
+import { Project } from './project.entity';
 
 export enum TaskStatus {
   PENDING = 'PENDING',
@@ -64,6 +65,12 @@ export class Task {
 
   @OneToMany(() => TaskAttachment, attachment => attachment.task)
   attachments: TaskAttachment[];
+
+   @ManyToOne(() => Project, project => project.tasks)
+  project: Project;
+
+  @Column()
+  projectId: number;
 
   @CreateDateColumn()
   createdAt: Date;
