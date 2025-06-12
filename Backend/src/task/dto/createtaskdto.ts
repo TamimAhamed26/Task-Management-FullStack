@@ -33,4 +33,7 @@ export class CreateTaskDto {
   @IsOptional()
   @IsInt()
   parentTaskId?: number;
+  @IsOptional()
+  @IsInt()
+  projectId?: number;
 }

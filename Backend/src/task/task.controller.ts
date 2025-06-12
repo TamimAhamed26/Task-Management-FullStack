@@ -30,17 +30,26 @@ import { NotificationDto } from './dto/notification.dto';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
 import { ManagerOverviewDto, OverdueTaskDto, ProjectDto } from './dto/ManagerReporting.dto';
+import { CreateTaskDto } from './dto/createtaskdto';
+import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}
 
-  @Get('pending')
+ @Get('pending')
   @Roles('MANAGER')
-  async getPendingTasks(): Promise<TaskDto[]> {
-    return this.taskService.getPendingTasks();
+  async getPendingTasks(
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+    @Query('projectName') projectName?: string,
+  ): Promise<TaskDto[]> {
+    if (projectId && projectName) {
+      throw new BadRequestException('Provide either projectId or projectName, not both');
+    }
+    return this.taskService.getPendingTasks(projectId, projectName);
   }
+
 
   @Get('sorted-by-priority')
   @Roles('MANAGER')
@@ -82,16 +91,15 @@ export class TaskController {
     return { message: 'Deadline and Priority updated successfully.' };
   }
 
-  @Patch(':id/mark-completed')
-  @Roles('MANAGER')
+@Patch(':id/mark-completed')
+  @Roles('MANAGER', 'COLLABORATOR') 
   async markTaskAsCompleted(
     @Param('id', ParseIntPipe) id: number,
     @GetUser('id') userId: number,
   ): Promise<{ message: string }> {
     await this.taskService.markTaskAsCompleted(id, userId);
-    return { message: 'Task marked as completed successfully.' };
+    return { message: 'Task marked as pending approval or completed successfully.' };
   }
-
   @Delete(':id')
   @Roles('MANAGER')
   async rejectTask(
@@ -99,8 +107,9 @@ export class TaskController {
     @GetUser('id') userId: number,
   ): Promise<{ message: string }> {
     await this.taskService.rejectTask(id, userId);
-    return { message: 'COMPLETED task deleted successfully.' };
+    return { message: 'COMPLETED or PENDING_APPROVAL task deleted successfully.' };
   }
+
 
 @Post(':id/comments')
   @Roles('MANAGER', 'COLLABORATOR')
@@ -209,7 +218,33 @@ export class TaskController {
   async getProjects(@GetUser('id') userId: number): Promise<ProjectDto[]> {
     return this.taskService.getProjects(userId);
   }
+@Post()
+@Roles('MANAGER')
+async createTask(
+  @Body(ValidationPipe) createTaskDto: CreateTaskDto,
+  @GetUser('id') userId: number,
+): Promise<TaskDto> {
+  return this.taskService.createTask(createTaskDto, userId);
+}
 
+
+@Patch(':id/status')
+@Roles('MANAGER', 'COLLABORATOR')
+async updateTaskStatus(
+  @Param('id', ParseIntPipe) id: number,
+  @Body(ValidationPipe) updateTaskStatusDto: UpdateTaskStatusDto,
+  @GetUser('id') userId: number,
+): Promise<TaskDto> {
+  return this.taskService.updateTaskStatus(id, updateTaskStatusDto, userId);
+}
+@Get('recent')
+@Roles('MANAGER', 'COLLABORATOR')
+async getRecentTasks(
+  @GetUser('id') userId: number,
+  @Query('projectId', new DefaultValuePipe(undefined), ParseIntPipe) projectId?: number,
+): Promise<TaskDto[]> {
+  return this.taskService.getRecentTasks(userId, projectId);
+}
   @Get('projects/:id/tasks')
   @Roles('MANAGER', 'COLLABORATOR')
   async getProjectTasks(

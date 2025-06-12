@@ -15,6 +15,7 @@ import { Project } from './project.entity';
 export enum TaskStatus {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL', 
   REJECTED = 'REJECTED',
   COMPLETED = 'COMPLETED',
 }
@@ -55,7 +56,7 @@ export class Task {
   assignedTo?: User;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
-  approvedBy?: User;
+approvedBy?: User | null; 
 
   @Column({ default: false })
   isCompleted: boolean;

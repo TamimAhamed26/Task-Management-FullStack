@@ -25,7 +25,8 @@ import { SearchTaskDto } from './dto/search-task.dto';
 import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskStatusSummary } from './dto/ManagerReporting.dto';
 import { Project } from 'src/entities/project.entity';
 import { Team } from 'src/entities/team.entity';
-
+import { CreateTaskDto,TaskPriority } from './dto/createtaskdto';
+import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 @Injectable()
 export class TaskService {
   constructor(
@@ -76,6 +77,241 @@ export class TaskService {
       await this.taskHistoryRepository.save(history);
     }
   }
+async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto> {
+  // Validate user is a Manager
+  const user = await this.userRepository.findOne({
+    where: { id: userId },
+    relations: ['role'],
+  });
+  if (!user || user.role.name !== 'Manager') {
+    throw new ForbiddenException('Only Managers can create tasks');
+  }
+
+  const { title, description, deadline, priority, assignedToId, parentTaskId, projectId } = createTaskDto;
+
+  // Validate assignedToId is a Collaborator, if provided
+  if (assignedToId) {
+    const assignee = await this.userRepository.findOne({
+      where: { id: assignedToId },
+      relations: ['role'],
+    });
+    if (!assignee || assignee.role.name !== 'Collaborator') {
+      throw new BadRequestException('Assigned user must be a Collaborator');
+    }
+  }
+
+  // Validate parentTaskId, if provided
+  if (parentTaskId) {
+    const parentTask = await this.taskRepository.findOne({ where: { id: parentTaskId } });
+    if (!parentTask) {
+      throw new NotFoundException('Parent task not found');
+    }
+  }
+
+  // Validate projectId
+  const project = await this.projectRepository.findOne({ where: { id: projectId } });
+  if (!project) {
+    throw new NotFoundException('Project not found');
+  }
+
+  // Map TaskPriority to PriorityLevel
+  const priorityMap: { [key in TaskPriority]: PriorityLevel } = {
+    [TaskPriority.LOW]: PriorityLevel.LOW,
+    [TaskPriority.MEDIUM]: PriorityLevel.MEDIUM,
+    [TaskPriority.HIGH]: PriorityLevel.HIGH,
+    [TaskPriority.URGENT]: PriorityLevel.HIGH, // Map URGENT to HIGH
+  };
+
+  const task = this.taskRepository.create({
+    title,
+    description,
+    status: TaskStatus.PENDING,
+    priority: priority ? priorityMap[priority] : PriorityLevel.MEDIUM,
+    dueDate: deadline ? new Date(deadline) : undefined,
+    createdBy: user,
+    assignedTo: assignedToId ? { id: assignedToId } : undefined,
+    approvedBy: null,
+    project: { id: projectId },
+    projectId,
+    isCompleted: false,
+  });
+
+  const savedTask: Task = await this.taskRepository.save(task);
+
+  // Log task creation in history
+  await this.logTaskHistory(savedTask, userId, 'Task Created', {
+    title: savedTask.title,
+    assignedToId: savedTask.assignedTo?.id,
+    projectId: savedTask.projectId,
+  });
+
+  // Create notification for assignee, if assigned
+  if (assignedToId) {
+    const notification = this.notificationRepository.create({
+      notificationType: 'TASK_ASSIGNED',
+      message: `You were assigned to task: ${savedTask.title}`,
+      recipient: { id: assignedToId },
+      relatedTaskId: savedTask.id,
+      task: savedTask,
+    });
+    await this.notificationRepository.save(notification);
+  }
+
+  return {
+    id: savedTask.id,
+    title: savedTask.title,
+    description: savedTask.description || '',
+    status: savedTask.status,
+    priority: savedTask.priority,
+    category: savedTask.category || '',
+    dueDate: savedTask.dueDate,
+    createdByUsername: savedTask.createdBy.username,
+    assignedToUsername: savedTask.assignedTo?.username || '',
+    approvedByUsername: savedTask.approvedBy?.username || '',
+    isCompleted: savedTask.isCompleted,
+    createdAt: savedTask.createdAt,
+    updatedAt: savedTask.updatedAt,
+  };
+}
+
+  async updateTaskStatus(
+    taskId: number,
+    updateTaskStatusDto: UpdateTaskStatusDto,
+    userId: number,
+  ): Promise<TaskDto> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['createdBy', 'assignedTo', 'approvedBy'],
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const newStatus: TaskStatus = updateTaskStatusDto.status;
+
+    // Only Managers can set APPROVED or COMPLETED status
+    if (
+      (newStatus === TaskStatus.APPROVED || newStatus === TaskStatus.COMPLETED) &&
+      user.role.name !== 'Manager'
+    ) {
+      throw new ForbiddenException('Only Managers can approve or complete tasks');
+    }
+
+    // Ensure task is in PENDING_APPROVAL before transitioning to APPROVED/COMPLETED
+    if (newStatus === TaskStatus.APPROVED && task.status !== TaskStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Task must be in PENDING_APPROVAL to be approved');
+    }
+
+    const oldStatus: TaskStatus = task.status;
+
+    // Update status: If APPROVED is requested, set to COMPLETED
+    task.status = newStatus === TaskStatus.APPROVED ? TaskStatus.COMPLETED : newStatus;
+
+    // Manage approvedBy and isCompleted
+    if (newStatus === TaskStatus.APPROVED) {
+      task.approvedBy = user;
+      task.isCompleted = true; // Set isCompleted to true for COMPLETED
+    } else if (oldStatus === TaskStatus.COMPLETED) {
+      task.approvedBy = null; // Revert approval if status changes from COMPLETED
+      task.isCompleted = false; // Revert isCompleted if no longer COMPLETED
+    } else {
+      task.isCompleted = newStatus === TaskStatus.COMPLETED; // Handle direct COMPLETED status
+    }
+
+    const savedTask = await this.taskRepository.save(task);
+
+    // Log status change
+    await this.logTaskHistory(savedTask, userId, 'Status Changed', {
+      oldStatus,
+      newStatus: savedTask.status,
+      approvedById: savedTask.approvedBy?.id || null,
+    });
+
+    // Notify assignee
+    if (task.assignedTo) {
+      const notification = this.notificationRepository.create({
+        notificationType: 'STATUS_UPDATED',
+        message: `Task "${savedTask.title}" status updated to ${savedTask.status}`,
+        recipient: { id: task.assignedTo.id },
+        relatedTaskId: savedTask.id,
+        task: savedTask,
+      });
+      await this.notificationRepository.save(notification);
+    }
+
+    return {
+      id: savedTask.id,
+      title: savedTask.title,
+      description: savedTask.description || '',
+      status: savedTask.status,
+      priority: savedTask.priority,
+      category: savedTask.category || '',
+      dueDate: savedTask.dueDate,
+      createdByUsername: savedTask.createdBy?.username || '',
+      assignedToUsername: savedTask.assignedTo?.username || '',
+      approvedByUsername: savedTask.approvedBy?.username || '',
+      isCompleted: savedTask.isCompleted,
+      createdAt: savedTask.createdAt,
+      updatedAt: savedTask.updatedAt,
+    };
+  }
+
+  
+ async getRecentTasks(userId: number, projectId?: number): Promise<TaskDto[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const whereClause: any = user.role.name === 'Manager' ? {} : { assignedTo: { id: userId } };
+    if (projectId) {
+      whereClause.projectId = projectId;
+    }
+
+    const tasks = await this.taskRepository.find({
+      where: whereClause,
+      relations: ['createdBy', 'assignedTo', 'approvedBy'],
+      order: { createdAt: 'DESC' },
+      take: 5,
+    });
+
+    if (projectId && tasks.length === 0) {
+      const projectExists = await this.projectRepository.findOne({ where: { id: projectId } });
+      if (!projectExists) {
+        throw new NotFoundException('Project not found');
+      }
+    }
+
+    return tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description || '',
+      status: task.status,
+      priority: task.priority,
+      category: task.category || '',
+      dueDate: task.dueDate,
+      createdByUsername: task.createdBy?.username || '',
+      assignedToUsername: task.assignedTo?.username || '',
+      approvedByUsername: task.approvedBy?.username || '',
+      isCompleted: task.isCompleted,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+    }));
+  }
+
   async getTaskById(taskId: number): Promise<TaskDto> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
@@ -124,21 +360,39 @@ export class TaskService {
     return updatedTask;
   }
 
-  async getPendingTasks(): Promise<TaskDto[]> {
+async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto[]> {
+    if (projectId && projectName) {
+      throw new BadRequestException('Provide either projectId or projectName, not both');
+    }
+
+    const whereClause: any = { status: TaskStatus.PENDING };
+
+    if (projectId) {
+      const project = await this.projectRepository.findOne({ where: { id: projectId } });
+      if (!project) {
+        throw new NotFoundException(`Project with ID ${projectId} not found`);
+      }
+      whereClause.projectId = projectId;
+    } else if (projectName) {
+      const project = await this.projectRepository.findOne({ where: { name: projectName } });
+      if (!project) {
+        throw new NotFoundException(`Project with name "${projectName}" not found`);
+      }
+      whereClause.projectId = project.id;
+    }
+
     const tasks = await this.taskRepository.find({
-      where: { status: TaskStatus.PENDING },
-      relations: ['createdBy', 'assignedTo', 'approvedBy'],
+      where: whereClause,
+      relations: ['createdBy', 'assignedTo', 'approvedBy', 'project'],
     });
 
     return tasks.map(task => ({
       id: task.id,
       title: task.title,
-      description: task.description,
+      description: task.description || '',
       status: task.status,
-
-    
       priority: task.priority,
-      category: task.category,
+      category: task.category || '',
       dueDate: task.dueDate,
       createdByUsername: task.createdBy?.username || '',
       assignedToUsername: task.assignedTo?.username || '',
@@ -146,9 +400,10 @@ export class TaskService {
       isCompleted: task.isCompleted,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
+      projectId: task.project?.id,
+      projectName: task.project?.name,
     }));
   }
-
   async getTasksSortedByPriority(): Promise<Task[]> {
     const tasks = await this.taskRepository.find({
       relations: ['createdBy', 'assignedTo', 'approvedBy'],
@@ -238,6 +493,7 @@ export class TaskService {
       updatedAt: task.updatedAt,
     }));
   }
+
   async rejectTask(taskId: number, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
@@ -245,8 +501,8 @@ export class TaskService {
     });
     if (!task) throw new NotFoundException('Task not found');
 
-    if (task.status !== TaskStatus.COMPLETED) {
-      throw new BadRequestException('Only completed tasks can be rejected');
+    if (task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Only completed or pending approval tasks can be rejected');
     }
 
     const queryRunner = this.taskRepository.manager.connection.createQueryRunner();
@@ -254,19 +510,17 @@ export class TaskService {
     await queryRunner.startTransaction();
 
     try {
-      // Log history with taskId
       await this.logTaskHistory(
         task,
         userId,
         'Task Rejected',
         {
           status: task.status,
-          title: task.title, // Include title for reference
+          title: task.title,
         },
         queryRunner,
       );
 
-      // Delete task
       await queryRunner.manager.remove(task);
 
       await queryRunner.commitTransaction();
@@ -278,23 +532,55 @@ export class TaskService {
     }
   }
   async markTaskAsCompleted(taskId: number, userId: number): Promise<void> {
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignedTo', 'createdBy'],
+    });
     if (!task) throw new NotFoundException('Task not found');
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Only assigned Collaborators or Managers can mark as completed
+    const isManager = user.role.name === 'Manager';
+    const isAssigned = user.id === task.assignedTo?.id;
+    if (!isManager && !isAssigned) {
+      throw new ForbiddenException('Only Managers or assigned Collaborators can mark tasks as completed');
+    }
 
     if (task.isCompleted) {
       throw new BadRequestException('Task is already completed');
     }
 
     const oldStatus = task.status;
-    task.status = TaskStatus.COMPLETED;
-    task.isCompleted = true;
+
+    // Set status based on user role
+    task.status = isManager ? TaskStatus.COMPLETED : TaskStatus.PENDING_APPROVAL;
+    task.isCompleted = isManager; // Only set isCompleted for Managers
+
     await this.taskRepository.save(task);
 
-    await this.logTaskHistory(task, userId, 'Status Changed', {
+    await this.logTaskHistory(task, userId, 'Task Marked as Completed', {
       oldStatus,
-      newStatus: TaskStatus.COMPLETED,
+      newStatus: task.status,
     });
+
+    // Notify Manager if Collaborator marked the task
+    if (!isManager && task.createdBy) {
+      const notification = this.notificationRepository.create({
+        notificationType: 'TASK_PENDING_APPROVAL',
+        message: `Task "${task.title}" is pending approval`,
+        recipient: { id: task.createdBy.id },
+        relatedTaskId: task.id,
+        task,
+      });
+      await this.notificationRepository.save(notification);
+    }
   }
+
 
   async setDeadlineAndPriority(taskId: number, body: SetDeadlinePriorityDto, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });

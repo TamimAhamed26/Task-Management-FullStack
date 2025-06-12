@@ -1,3 +1,5 @@
+import { TaskStatus } from '../../entities/task.entity';
+
 export interface TaskCompletionRateDto {
   completionRate: number;
   completedTasks: number;
@@ -23,4 +25,16 @@ export interface TotalHoursPerTaskDto {
 export interface TotalHoursPerUserDto {
   username: string;
   totalHours: number;
+}
+
+
+export interface WorkloadDistributionDto {
+  username: string;
+  taskCount: number;
+  statusBreakdown: {
+    [TaskStatus.PENDING]: number;
+    [TaskStatus.APPROVED]: number;
+    [TaskStatus.COMPLETED]: number;
+    [TaskStatus.REJECTED]: number;
+  };
 }

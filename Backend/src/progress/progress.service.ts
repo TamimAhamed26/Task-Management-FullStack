@@ -298,45 +298,60 @@ async generateWeeklyReportPDF(): Promise<Buffer> {
       averageDays: parseFloat(averageDays.toFixed(2)),
     };
   }
+async getWorkloadDistribution(
+  username?: string,
+  userId?: number,
+): Promise<WorkloadDistributionDto[]> {
+  const query = this.taskRepository
+    .createQueryBuilder('task')
+    .leftJoin('task.assignedTo', 'user')
+    .select('user.username', 'username')
+    .addSelect('COUNT(task.id)', 'taskCount')
+    .addSelect('SUM(CASE WHEN task.status = :pending THEN 1 ELSE 0 END)', 'pendingCount')
+    .addSelect('SUM(CASE WHEN task.status = :approved THEN 1 ELSE 0 END)', 'approvedCount')
+    .addSelect('SUM(CASE WHEN task.status = :completed THEN 1 ELSE 0 END)', 'completedCount')
+    .addSelect('SUM(CASE WHEN task.status = :rejected THEN 1 ELSE 0 END)', 'rejectedCount')
+    .where('task.assignedTo IS NOT NULL')
+    .setParameters({
+      pending: TaskStatus.PENDING,
+      approved: TaskStatus.APPROVED,
+      completed: TaskStatus.COMPLETED,
+      rejected: TaskStatus.REJECTED,
+    });
 
-  async getWorkloadDistribution(
-    username?: string,
-    userId?: number,
-  ): Promise<WorkloadDistributionDto[]> {
-    const query = this.taskRepository
-      .createQueryBuilder('task')
-      .leftJoin('task.assignedTo', 'user')
-      .select('user.username', 'username')
-      .addSelect('COUNT(task.id)', 'taskCount')
-      .where('task.assignedTo IS NOT NULL');
-
-    if (username && userId) {
-      throw new BadRequestException('Provide either username or userId, not both.');
-    }
-
-    if (username) {
-      query.andWhere('user.username = :username', { username });
-    } else if (userId) {
-      query.andWhere('user.id = :userId', { userId });
-    }
-
-    const result = await query
-      .groupBy('user.username')
-      .orderBy('COUNT(task.id)', 'DESC')
-      .getRawMany();
-
-    if (result.length === 0) {
-      if (username || userId) {
-        throw new NotFoundException('No tasks found for the specified collaborator.');
-      }
-      return [];
-    }
-
-    return result.map(row => ({
-      username: row.username || 'Unassigned',
-      taskCount: parseInt(row.taskCount, 10),
-    }));
+  if (username && userId) {
+    throw new BadRequestException('Provide either username or userId, not both');
   }
+
+  if (username) {
+    query.andWhere('user.username = :username', { username });
+  } else if (userId) {
+    query.andWhere('user.id = :userId', { userId });
+  }
+
+  const result = await query
+    .groupBy('user.username')
+    .orderBy('COUNT(task.id)', 'DESC')
+    .getRawMany();
+
+  if (result.length === 0) {
+    if (username || userId) {
+      throw new NotFoundException('No tasks found for the specified collaborator');
+    }
+    return [];
+  }
+
+  return result.map(row => ({
+    username: row.username || 'Unassigned',
+    taskCount: parseInt(row.taskCount, 10),
+    statusBreakdown: {
+      [TaskStatus.PENDING]: parseInt(row.pendingCount, 10),
+      [TaskStatus.APPROVED]: parseInt(row.approvedCount, 10),
+      [TaskStatus.COMPLETED]: parseInt(row.completedCount, 10),
+      [TaskStatus.REJECTED]: parseInt(row.rejectedCount, 10),
+    },
+  }));
+}
 
   async getTotalHoursPerTask(taskId: number): Promise<TotalHoursPerTaskDto> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
