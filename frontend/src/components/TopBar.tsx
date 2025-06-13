@@ -25,14 +25,21 @@ export default function TopBar() {
       </div>
       <div className="flex-none">
         <div className="dropdown dropdown-end">
-          <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
-            <div className="w-12 rounded-full ring-2 ring-indigo-500">
-              <img
-                src={`https://placehold.co/48x48/4F46E5/FFFFFF?text=${user.username.charAt(0).toUpperCase()}`}
-                alt="User Avatar"
-              />
-            </div>
-          </label>
+          
+      <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
+
+  <div className="w-12 rounded-full ring-2 ring-indigo-500">
+    <img
+      src={
+        user.avatarUrl?.startsWith('http')
+          ? user.avatarUrl
+          : `https://placehold.co/48x48/4F46E5/FFFFFF?text=${user.username.charAt(0).toUpperCase()}`
+      }
+      alt="User Avatar"
+    />
+  </div>
+</label>
+
           <ul
             tabIndex={0}
             className="menu menu-md dropdown-content mt-3 z-[1] p-2 shadow-lg bg-white rounded-2xl w-64 border border-gray-100"

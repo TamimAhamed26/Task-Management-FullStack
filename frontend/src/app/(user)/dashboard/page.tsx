@@ -96,7 +96,6 @@ interface TaskCompletionRateDto {
     totalTasks: number;
 }
 
-// **The simulated useAuthGuard hook content is removed from here.**
 
 export default function DashboardPage() {
   const { user, tokenStatus, loading, feedback } = useAuthGuard();
@@ -126,14 +125,12 @@ export default function DashboardPage() {
   const [createTaskSuccess, setCreateTaskSuccess] = useState<string | null>(null);
   // Filter states for optional parameters
   const [recentTasksProjectId, setRecentTasksProjectId] = useState<number | undefined>(undefined);
-  const [pendingTasksFilterProjectId, setPendingTasksFilterProjectId] = useState<number |
-  undefined>(undefined);
+  const [pendingTasksFilterProjectId, setPendingTasksFilterProjectId] = useState<number | undefined>(undefined);
   const [pendingTasksFilterProjectName, setPendingTasksFilterProjectName] = useState<string | undefined>(undefined);
   const [workloadFilterUsername, setWorkloadFilterUsername] = useState<string | undefined>(undefined);
   const [workloadFilterUserId, setWorkloadFilterUserId] = useState<number | undefined>(undefined);
   const [hoursFilterUsername, setHoursFilterUsername] = useState<string | undefined>(undefined);
-  const [hoursFilterUserId, setHoursFilterUserId] = useState<number |
-  undefined>(undefined);
+  const [hoursFilterUserId, setHoursFilterUserId] = useState<number | undefined>(undefined);
   const [hoursFilterStartDate, setHoursFilterStartDate] = useState<string | undefined>(undefined);
   const [hoursFilterEndDate, setHoursFilterEndDate] = useState<string | undefined>(undefined);
   // Function to fetch all dashboard data, with independent error handling
@@ -366,9 +363,7 @@ if (!loading && user && user.role?.name?.toUpperCase() === 'MANAGER') {
       </div>
     );
   }
-// Inside your DashboardPage component, before any conditional rendering
 
-  // Render access denied for non-managers
 if (user.role?.name.toUpperCase() !== 'MANAGER') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-red-50 to-red-100 p-6">
@@ -447,6 +442,7 @@ d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
     },
   };
   return (
+    
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-6 md:p-10 font-sans antialiased">
       {/* Navbar / Header */}
       <TopBar />
