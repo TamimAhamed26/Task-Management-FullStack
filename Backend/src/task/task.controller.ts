@@ -241,10 +241,12 @@ async updateTaskStatus(
 @Roles('MANAGER', 'COLLABORATOR')
 async getRecentTasks(
   @GetUser('id') userId: number,
-  @Query('projectId', new DefaultValuePipe(undefined), ParseIntPipe) projectId?: number,
+@Query('projectId') projectIdRaw?: string,
 ): Promise<TaskDto[]> {
+  const projectId = projectIdRaw ? parseInt(projectIdRaw) : undefined;
   return this.taskService.getRecentTasks(userId, projectId);
 }
+
   @Get('projects/:id/tasks')
   @Roles('MANAGER', 'COLLABORATOR')
   async getProjectTasks(
