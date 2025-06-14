@@ -117,19 +117,19 @@ export default function ProfilePage() {
 
   if (loading || !user) {
     return (
-      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+      <div className="min-h-screen bg-base-200 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <span className="loading loading-spinner loading-lg text-primary"></span>
-          <p className="mt-4 text-base-content/70">Loading...</p>
+          <span className="loading loading-spinner loading-lg text-primary dark:text-indigo-400"></span>
+          <p className="mt-4 text-base-content/70 dark:text-gray-100">Loading...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-base-200 py-8">
+    <div className="min-h-screen bg-base-200 dark:bg-gray-900 py-8">
       {/* Topbar */}
-      <nav className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg">
+      <nav className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white dark:text-gray-100 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center">
@@ -148,8 +148,8 @@ export default function ProfilePage() {
                     className="w-10 h-10 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
-                    <span className="text-gray-600 font-bold">
+                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                    <span className="text-gray-600 dark:text-gray-100 font-bold">
                       {user.username.charAt(0).toUpperCase()}
                     </span>
                   </div>
@@ -172,9 +172,8 @@ export default function ProfilePage() {
               </label>
               <ul
                 tabIndex={0}
-                className="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 mt-2 text-gray-800"
+                className="dropdown-content menu p-2 shadow bg-base-100 dark:bg-gray-800 rounded-box w-52 mt-2 text-gray-800 dark:text-gray-100"
               >
-               
                 <li>
                   <Link href="/change-password">Change Password</Link>
                 </li>
@@ -204,37 +203,36 @@ export default function ProfilePage() {
       <div className="max-w-md mx-auto mt-8">
         {/* Header */}
         <div className="text-center mb-8">
-     
-          <h1 className="text-2xl font-bold text-base-content">Edit Profile</h1>
-          <p className="text-base-content/70 mt-2">Manage your personal information</p>
+          <h1 className="text-2xl font-bold text-base-content dark:text-gray-100">Edit Profile</h1>
+          <p className="text-base-content/70 dark:text-gray-300 mt-2">Manage your personal information</p>
         </div>
 
         {/* Main Card */}
-        <div className="card bg-base-100 shadow-xl">
+        <div className="card bg-base-100 dark:bg-gray-800 shadow-xl">
           <div className="card-body">
             {/* Alerts */}
             {tokenStatus === 'refreshed' && (
               <div className="alert alert-info mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-info dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Session refreshed for security</span>
+                <span className="text-gray-800 dark:text-gray-100">Session refreshed for security</span>
               </div>
             )}
             {success && (
               <div className="alert alert-success mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-success dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{success}</span>
+                <span className="text-gray-800 dark:text-gray-100">{success}</span>
               </div>
             )}
             {error && (
               <div className="alert alert-error mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-error dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{error}</span>
+                <span className="text-gray-800 dark:text-gray-100">{error}</span>
               </div>
             )}
 
@@ -242,7 +240,7 @@ export default function ProfilePage() {
               {/* Username */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">Username</span>
+                  <span className="label-text font-medium text-gray-700 dark:text-gray-300">Username</span>
                 </label>
                 <input
                   type="text"
@@ -257,7 +255,7 @@ export default function ProfilePage() {
                 />
                 {validationErrors.username && (
                   <label className="label">
-                    <span className="label-text-alt text-error">{validationErrors.username}</span>
+                    <span className="label-text-alt text-error dark:text-red-400">{validationErrors.username}</span>
                   </label>
                 )}
               </div>
@@ -265,7 +263,7 @@ export default function ProfilePage() {
               {/* Email */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">Email</span>
+                  <span className="label-text font-medium text-gray-700 dark:text-gray-300">Email</span>
                 </label>
                 <input
                   type="email"
@@ -280,7 +278,7 @@ export default function ProfilePage() {
                 />
                 {validationErrors.email && (
                   <label className="label">
-                    <span className="label-text-alt text-error">{validationErrors.email}</span>
+                    <span className="label-text-alt text-error dark:text-red-400">{validationErrors.email}</span>
                   </label>
                 )}
               </div>
@@ -288,7 +286,7 @@ export default function ProfilePage() {
               {/* Phone */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">Phone</span>
+                  <span className="label-text font-medium text-gray-700 dark:text-gray-300">Phone</span>
                 </label>
                 <input
                   type="text"
@@ -303,7 +301,7 @@ export default function ProfilePage() {
                 />
                 {validationErrors.phone && (
                   <label className="label">
-                    <span className="label-text-alt text-error">{validationErrors.phone}</span>
+                    <span className="label-text-alt text-error dark:text-red-400">{validationErrors.phone}</span>
                   </label>
                 )}
               </div>
@@ -335,14 +333,14 @@ export default function ProfilePage() {
         {/* Back Button */}
         <div className="text-center mt-6">
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm text-gray-600 dark:text-gray-300"
             onClick={() => router.back()}
             disabled={isSubmitting}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back 
+            Back
           </button>
         </div>
       </div>
