@@ -27,8 +27,19 @@ export class UserService {
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
-
-
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { username },
+      relations: ['role'],
+    });
+  }
+async getCollaborators(): Promise<{ id: number; username: string }[]> {
+  const collaborators = await this.userRepository.find({
+    where: { role: { name: 'Collaborator' } },
+    select: ['id', 'username'],
+  });
+  return collaborators.map(user => ({ id: user.id, username: user.username }));
+}
   async updateProfile(id: number, updateDto: UpdateProfileDto): Promise<string> {
       const user = await this.findById(id);
   

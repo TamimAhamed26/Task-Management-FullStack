@@ -124,18 +124,21 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
     );
   }
 
-  @Get('workload-distribution')
+@Get('workload-distribution')
   @Roles('MANAGER')
   async getWorkloadDistribution(
     @Query('username') username?: string,
     @Query('userId') userId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ): Promise<WorkloadDistributionDto[]> {
     return this.progressService.getWorkloadDistribution(
       username,
       userId ? parseInt(userId, 10) : undefined,
+      startDate,
+      endDate,
     );
   }
-
  
   @Get('total-hours/task/:id')
   @Roles('MANAGER')
@@ -160,4 +163,38 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
       endDate,
     );
   }
+
+
+
+@Get('custom-report')
+@Roles('MANAGER')
+async getCustomReport(
+  @Query('startDate') startDate: string,
+  @Query('endDate') endDate: string,
+): Promise<ProgressReportDto> {
+  if (!startDate || !endDate) {
+    throw new BadRequestException('Start date and end date are required.');
+  }
+  return this.progressService.generateCustomReport(startDate, endDate);
+}
+
+@Get('download-custom-report-pdf')
+@Roles('MANAGER')
+async downloadCustomReportPDF(
+  @Query('startDate') startDate: string,
+  @Query('endDate') endDate: string,
+  @Res() res: Response,
+) {
+  const pdfBuffer = await this.progressService.generateCustomReportPDF(startDate, endDate);
+
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename=custom_report_${startDate}_to_${endDate}.pdf`,
+    'Content-Length': pdfBuffer.length,
+  });
+
+  res.send(pdfBuffer);
+}
+
+
 }

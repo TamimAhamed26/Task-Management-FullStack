@@ -27,6 +27,9 @@ import { Project } from 'src/entities/project.entity';
 import { Team } from 'src/entities/team.entity';
 import { CreateTaskDto,TaskPriority } from './dto/createtaskdto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
+import PDFDocument from 'pdfkit';
+import axios from 'axios';
+
 @Injectable()
 export class TaskService {
   constructor(
@@ -1022,18 +1025,25 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
   }
 
 
-async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
-    const prioritySummary = await this.taskRepository
-      .createQueryBuilder('task')
-      .select('task.priority', 'priority')
-      .addSelect('COUNT(task.id)', 'count')
-      .groupBy('task.priority')
-      .getRawMany();
 
-    return prioritySummary.map(row => ({
-      priority: row.priority,
-      count: parseInt(row.count, 10),
-    }));
+async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto[]> {
+  const query = this.taskRepository
+    .createQueryBuilder('task')
+    .select('task.priority', 'priority')
+    .addSelect('COUNT(task.id)', 'count');
+
+  if (projectId) {
+    query.where('task.projectId = :projectId', { projectId });
+  }
+
+  const prioritySummary = await query
+    .groupBy('task.priority')
+    .getRawMany();
+
+  return prioritySummary.map(row => ({
+    priority: row.priority,
+    count: parseInt(row.count, 10),
+  }));
 }
   
   async getProjects(userId: number): Promise<ProjectDto[]> {
@@ -1215,4 +1225,8 @@ async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
     });
     await this.notificationRepository.save(notification);
   }
+
+
+
+ 
 }

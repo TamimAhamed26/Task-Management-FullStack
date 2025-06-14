@@ -32,6 +32,7 @@ import { SearchTaskDto } from './dto/search-task.dto';
 import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto } from './dto/ManagerReporting.dto';
 import { CreateTaskDto } from './dto/createtaskdto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
+import { ProgressReportDto } from 'src/progress/dto/ProgressReportDto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
@@ -249,8 +250,10 @@ async getRecentTasks(
 
 @Get('summary/by-priority')
 @Roles('MANAGER')
-async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
-    return this.taskService.getTaskPrioritySummary();
+async getTaskPrioritySummary(
+  @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+): Promise<TaskPrioritySummaryDto[]> {
+  return this.taskService.getTaskPrioritySummary(projectId);
 }
   @Get('projects/:id/tasks')
   @Roles('MANAGER', 'COLLABORATOR')
@@ -282,4 +285,8 @@ async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
   ): Promise<void> {
     await this.taskService.removeTeamMember(projectId, currentUserId, memberId);
   }
+
+
+
+
 }

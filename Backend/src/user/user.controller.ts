@@ -38,7 +38,11 @@ export class UserController {
   ) {
     return this.userService.updateProfile(id, dto);
   }
-
+@Get('collaborators')
+@Roles('MANAGER')
+async getCollaborators(): Promise<{ id: number; username: string }[]> {
+  return this.userService.getCollaborators();
+}
 @Patch('password')
 @UsePipes(ValidationPipe)
 async updatePassword(

@@ -1,2 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+.z-index-fix-for-datepicker {
+  z-index: 1000 !important; 
+}

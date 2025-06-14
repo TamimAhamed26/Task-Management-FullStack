@@ -301,10 +301,13 @@ async generateWeeklyReportPDF(): Promise<Buffer> {
 async getWorkloadDistribution(
   username?: string,
   userId?: number,
+  startDate?: string,
+  endDate?: string,
 ): Promise<WorkloadDistributionDto[]> {
   const query = this.taskRepository
     .createQueryBuilder('task')
     .leftJoin('task.assignedTo', 'user')
+    .leftJoin('user.role', 'role') // Join role to filter for Collaborators
     .select('user.username', 'username')
     .addSelect('COUNT(task.id)', 'taskCount')
     .addSelect('SUM(CASE WHEN task.status = :pending THEN 1 ELSE 0 END)', 'pendingCount')
@@ -312,6 +315,7 @@ async getWorkloadDistribution(
     .addSelect('SUM(CASE WHEN task.status = :completed THEN 1 ELSE 0 END)', 'completedCount')
     .addSelect('SUM(CASE WHEN task.status = :rejected THEN 1 ELSE 0 END)', 'rejectedCount')
     .where('task.assignedTo IS NOT NULL')
+    .andWhere('role.name = :roleName', { roleName: 'Collaborator' }) // Ensure only Collaborators
     .setParameters({
       pending: TaskStatus.PENDING,
       approved: TaskStatus.APPROVED,
@@ -324,9 +328,29 @@ async getWorkloadDistribution(
   }
 
   if (username) {
+    const user = await this.userService.findByUsername(username);
+    if (!user || user.role.name !== 'Collaborator') {
+      throw new NotFoundException('No tasks found for the specified collaborator');
+    }
     query.andWhere('user.username = :username', { username });
   } else if (userId) {
+    const user = await this.userService.findById(userId);
+    if (!user || user.role.name !== 'Collaborator') {
+      throw new NotFoundException('No tasks found for the specified collaborator');
+    }
     query.andWhere('user.id = :userId', { userId });
+  }
+
+  if (startDate && endDate) {
+    if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+      throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
+    }
+    const endDateAdjusted = new Date(endDate);
+    endDateAdjusted.setHours(23, 59, 59, 999);
+    query.andWhere('task.createdAt BETWEEN :startDate AND :endDate', {
+      startDate: new Date(startDate).toISOString(),
+      endDate: endDateAdjusted.toISOString(),
+    });
   }
 
   const result = await query
@@ -334,13 +358,9 @@ async getWorkloadDistribution(
     .orderBy('COUNT(task.id)', 'DESC')
     .getRawMany();
 
-  if (result.length === 0) {
-    if (username || userId) {
-      throw new NotFoundException('No tasks found for the specified collaborator');
+if (result.length === 0) {
+      return [];
     }
-    return [];
-  }
-
   return result.map(row => ({
     username: row.username || 'Unassigned',
     taskCount: parseInt(row.taskCount, 10),
@@ -352,7 +372,6 @@ async getWorkloadDistribution(
     },
   }));
 }
-
   async getTotalHoursPerTask(taskId: number): Promise<TotalHoursPerTaskDto> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) throw new NotFoundException('Task not found');
@@ -411,10 +430,7 @@ async getWorkloadDistribution(
       .orderBy('SUM(timeLog.hours)', 'DESC')
       .getRawMany();
 
-    if (result.length === 0) {
-      if (username || userId) {
-        throw new NotFoundException('No time logs found for the specified collaborator.');
-      }
+  if (result.length === 0) {
       return [];
     }
 
@@ -423,4 +439,95 @@ async getWorkloadDistribution(
       totalHours: parseFloat(parseFloat(row.totalHours).toFixed(2)),
     }));
   }
+
+
+ async generateCustomReport(startDate: string, endDate: string): Promise<ProgressReportDto> {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
+  }
+
+  if (start > end) {
+    throw new BadRequestException('Start date must be before end date.');
+  }
+
+  // Ensure end date includes the full day
+  end.setHours(23, 59, 59, 999);
+
+  const tasks = await this.taskRepository.find({
+    where: { createdAt: Between(start, end) },
+  });
+
+  const completedTasks = tasks.filter(task => task.status === TaskStatus.COMPLETED).length;
+  const pendingTasks = tasks.length - completedTasks;
+  const completionPercentage = tasks.length === 0 ? 0 : (completedTasks / tasks.length) * 100;
+
+  const graphData: { date: string; completed: number }[] = [];
+  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24));
+  for (let i = daysDiff - 1; i >= 0; i--) {
+    const day = new Date(end);
+    day.setDate(end.getDate() - i);
+    const dayStr = day.toISOString().split('T')[0];
+
+    const completedOnDay = tasks.filter(task =>
+      task.status === TaskStatus.COMPLETED &&
+      task.updatedAt.toISOString().split('T')[0] === dayStr
+    ).length;
+
+    graphData.push({ date: dayStr, completed: completedOnDay });
+  }
+
+  return {
+    completedTasks,
+    pendingTasks,
+    completionPercentage: Number(completionPercentage.toFixed(2)),
+    weeklyGraphData: graphData,
+  };
 }
+
+async generateCustomReportPDF(startDate: string, endDate: string): Promise<Buffer> {
+  const report = await this.generateCustomReport(startDate, endDate);
+
+  const doc = new PDFDocument();
+  const buffers: Uint8Array[] = [];
+
+  doc.on('data', buffers.push.bind(buffers));
+  doc.on('end', () => {});
+
+  doc.fontSize(18).text('Custom Progress Report', { align: 'center' });
+  doc.moveDown();
+
+  doc.fontSize(12).text(`Date Range: ${startDate} to ${endDate}`);
+  doc.text(`Completed Tasks: ${report.completedTasks}`);
+  doc.text(`Pending Tasks: ${report.pendingTasks}`);
+  doc.text(`Completion Percentage: ${report.completionPercentage}%`);
+  doc.moveDown();
+
+  const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify({
+    type: 'bar',
+    data: {
+      labels: report.weeklyGraphData.map(d => d.date),
+      datasets: [{
+        label: 'Completed Tasks',
+        data: report.weeklyGraphData.map(d => d.completed),
+        backgroundColor: 'blue'
+      }]
+    }
+  }))}`;
+
+  const response = await axios.get(chartUrl, { responseType: 'arraybuffer' });
+  const chartImage = Buffer.from(response.data as ArrayBuffer);
+
+  doc.image(chartImage, { fit: [500, 300], align: 'center', valign: 'center' });
+
+  doc.end();
+
+  return new Promise<Buffer>((resolve) => {
+    doc.on('end', () => {
+      resolve(Buffer.concat(buffers));
+    });
+  });
+}
+  }
