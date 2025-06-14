@@ -22,7 +22,7 @@ import { FileService } from 'src/file/file.service';
 import { TimeLog } from 'src/entities/time-log.entity';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
-import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskStatusSummary } from './dto/ManagerReporting.dto';
+import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto, TaskStatusSummary } from './dto/ManagerReporting.dto';
 import { Project } from 'src/entities/project.entity';
 import { Team } from 'src/entities/team.entity';
 import { CreateTaskDto,TaskPriority } from './dto/createtaskdto';
@@ -1022,6 +1022,19 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
   }
 
 
+async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
+    const prioritySummary = await this.taskRepository
+      .createQueryBuilder('task')
+      .select('task.priority', 'priority')
+      .addSelect('COUNT(task.id)', 'count')
+      .groupBy('task.priority')
+      .getRawMany();
+
+    return prioritySummary.map(row => ({
+      priority: row.priority,
+      count: parseInt(row.count, 10),
+    }));
+}
   
   async getProjects(userId: number): Promise<ProjectDto[]> {
     const user = await this.userRepository.findOne({

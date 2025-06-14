@@ -206,19 +206,19 @@ export default function AvatarPage() {
 
   if (loading || !user) {
     return (
-      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+      <div className="min-h-screen bg-base-200 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <span className="loading loading-spinner loading-lg text-primary"></span>
-          <p className="mt-4 text-base-content/70">Loading...</p>
+          <span className="loading loading-spinner loading-lg text-primary dark:text-indigo-400"></span>
+          <p className="mt-4 text-base-content/70 dark:text-gray-100">Loading...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-base-200">
+    <div className="min-h-screen bg-base-200 dark:bg-gray-900">
       {/* Topbar */}
-      <nav className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg">
+      <nav className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white dark:text-gray-100 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center">
@@ -237,8 +237,8 @@ export default function AvatarPage() {
                     className="w-10 h-10 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
-                    <span className="text-gray-600 font-bold">
+                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                    <span className="text-gray-600 dark:text-gray-100 font-bold">
                       {user.username.charAt(0).toUpperCase()}
                     </span>
                   </div>
@@ -261,7 +261,7 @@ export default function AvatarPage() {
               </label>
               <ul
                 tabIndex={0}
-                className="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 mt-2 text-gray-800"
+                className="dropdown-content menu p-2 shadow bg-base-100 dark:bg-gray-800 rounded-box w-52 mt-2 text-gray-800 dark:text-gray-100"
               >
                 <li>
                   <Link href="/dashboard">Dashboard</Link>
@@ -269,9 +269,7 @@ export default function AvatarPage() {
                 <li>
                   <Link href="/change-password">Change Password</Link>
                 </li>
-                <li>
-                  <Link href="/profile">Edit Profile</Link>
-                </li>
+             
                 <li>
                   <button
                     onClick={async () => {
@@ -295,41 +293,41 @@ export default function AvatarPage() {
       <div className="max-w-md mx-auto py-8">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-16 h-16 bg-primary/10 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-primary dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-base-content">Update Avatar</h1>
-          <p className="text-base-content/70 mt-2">Customize your profile picture</p>
+          <h1 className="text-2xl font-bold text-base-content dark:text-gray-100">Update Avatar</h1>
+          <p className="text-base-content/70 dark:text-gray-300 mt-2">Customize your profile picture</p>
         </div>
 
         {/* Main Card */}
-        <div className="card bg-base-100 shadow-xl">
+        <div className="card bg-base-100 dark:bg-gray-800 shadow-xl">
           <div className="card-body">
             {/* Alerts */}
             {tokenStatus === 'refreshed' && (
               <div className="alert alert-info mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-info dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Session refreshed for security</span>
+                <span className="text-gray-800 dark:text-gray-100">Session refreshed for security</span>
               </div>
             )}
             {success && (
               <div className="alert alert-success mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-success dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{success}</span>
+                <span className="text-gray-800 dark:text-gray-100">{success}</span>
               </div>
             )}
             {error && (
               <div className="alert alert-error mb-4">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-error dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{error}</span>
+                <span className="text-gray-800 dark:text-gray-100">{error}</span>
               </div>
             )}
 
@@ -337,17 +335,17 @@ export default function AvatarPage() {
             <div className="mb-6 text-center">
               {isLoading ? (
                 <div className="flex justify-center items-center h-32">
-                  <span className="loading loading-spinner loading-md text-primary"></span>
+                  <span className="loading loading-spinner loading-md text-primary dark:text-indigo-400"></span>
                 </div>
               ) : avatarPreview ? (
                 <img
                   src={avatarPreview}
                   alt="Avatar Preview"
-                  className="w-32 h-32 rounded-full object-cover mx-auto border border-base-300"
+                  className="w-32 h-32 rounded-full object-cover mx-auto border border-base-300 dark:border-gray-600"
                 />
               ) : (
-                <div className="w-32 h-32 rounded-full bg-base-200 flex items-center justify-center mx-auto border border-base-300">
-                  <span className="text-4xl text-base-content/50">{user.username.charAt(0).toUpperCase()}</span>
+                <div className="w-32 h-32 rounded-full bg-base-200 dark:bg-gray-700 flex items-center justify-center mx-auto border border-base-300 dark:border-gray-600">
+                  <span className="text-4xl text-base-content/50 dark:text-gray-300">{user.username.charAt(0).toUpperCase()}</span>
                 </div>
               )}
             </div>
@@ -355,7 +353,7 @@ export default function AvatarPage() {
             {/* Upload via File */}
             <div className="form-control mb-6">
               <label className="label">
-                <span className="label-text font-medium">Upload Image File</span>
+                <span className="label-text font-medium text-gray-700 dark:text-gray-300">Upload Image File</span>
               </label>
               <input
                 type="file"
@@ -368,16 +366,16 @@ export default function AvatarPage() {
               />
               {validationErrors.file && (
                 <label className="label">
-                  <span className="label-text-alt text-error">{validationErrors.file}</span>
+                  <span className="label-text-alt text-error dark:text-red-400">{validationErrors.file}</span>
                 </label>
               )}
-              <p className="text-sm text-base-content/70 mt-1">Max 5MB, PNG/JPG/GIF/WebP</p>
+              <p className="text-sm text-base-content/70 dark:text-gray-300 mt-1">Max 5MB, PNG/JPG/GIF/WebP</p>
             </div>
 
             {/* Upload via URL */}
             <div className="form-control">
               <label className="label">
-                <span className="label-text font-medium">Or Enter Image URL</span>
+                <span className="label-text font-medium text-gray-700 dark:text-gray-300">Or Enter Image URL</span>
               </label>
               <div className="join w-full">
                 <input
@@ -404,7 +402,7 @@ export default function AvatarPage() {
               </div>
               {validationErrors.url && (
                 <label className="label">
-                  <span className="label-text-alt text-error">{validationErrors.url}</span>
+                  <span className="label-text-alt text-error dark:text-red-400">{validationErrors.url}</span>
                 </label>
               )}
             </div>
@@ -414,7 +412,7 @@ export default function AvatarPage() {
         {/* Back Button */}
         <div className="text-center mt-6">
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm text-gray-600 dark:text-gray-300"
             onClick={() => router.back()}
             disabled={isLoading}
           >
@@ -429,8 +427,8 @@ export default function AvatarPage() {
       {/* Cropping Modal */}
       <input type="checkbox" id="cropper-modal" className="modal-toggle" checked={showCropper} readOnly />
       <div className="modal" role="dialog">
-        <div className="modal-box bg-base-100">
-          <h3 className="text-lg font-bold mb-4 text-center">Crop Your Avatar</h3>
+        <div className="modal-box bg-base-100 dark:bg-gray-800">
+          <h3 className="text-lg font-bold mb-4 text-center text-gray-900 dark:text-gray-100">Crop Your Avatar</h3>
           <div className="relative w-full aspect-square">
             {avatarPreview && (
               <Cropper

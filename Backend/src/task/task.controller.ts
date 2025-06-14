@@ -29,7 +29,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { NotificationDto } from './dto/notification.dto';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
-import { ManagerOverviewDto, OverdueTaskDto, ProjectDto } from './dto/ManagerReporting.dto';
+import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto } from './dto/ManagerReporting.dto';
 import { CreateTaskDto } from './dto/createtaskdto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 
@@ -247,6 +247,11 @@ async getRecentTasks(
   return this.taskService.getRecentTasks(userId, projectId);
 }
 
+@Get('summary/by-priority')
+@Roles('MANAGER')
+async getTaskPrioritySummary(): Promise<TaskPrioritySummaryDto[]> {
+    return this.taskService.getTaskPrioritySummary();
+}
   @Get('projects/:id/tasks')
   @Roles('MANAGER', 'COLLABORATOR')
   async getProjectTasks(

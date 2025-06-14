@@ -1,3 +1,5 @@
+import { PriorityLevel } from "src/entities/task.entity";
+
 export class TaskStatusSummary {
   status: string;
   count: number;
@@ -29,4 +31,9 @@ export class ProjectDto {
   description: string;
   ownerUsername: string;
   teamMembers: string[];
+}
+
+export class TaskPrioritySummaryDto {
+  priority: PriorityLevel;
+  count: number;
 }

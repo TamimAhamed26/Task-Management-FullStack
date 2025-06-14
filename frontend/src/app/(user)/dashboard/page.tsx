@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Pie } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,13 +9,13 @@ import {
   BarElement,
   Title,
   Tooltip,
-  Legend,
+  Legend,ArcElement 
 } from 'chart.js';
 import TopBar from '@/components/TopBar';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 // Register Chart.js components
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,ArcElement);
 
 // Define interfaces for data structures based on your backend services
 interface TaskDto {
@@ -109,6 +109,12 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
+  interface PrioritySummaryDto {
+    priority: string;
+    count: number;
+  }
+  const [prioritySummary, setPrioritySummary] = useState<PrioritySummaryDto[]>([]);
+
   const [newTask, setNewTask] = useState<CreateTaskDto>({
     title: '',
     description: '',
@@ -179,7 +185,7 @@ export default function DashboardPage() {
     if (totalHoursParams.toString()) {
       totalHoursUrl += `?${totalHoursParams.toString()}`;
     }
-
+  
     const reportUrl = reportPeriod === 'weekly'
       ? 'http://localhost:3001/progress/weekly-report'
       : 'http://localhost:3001/progress/monthly-report';
@@ -194,6 +200,7 @@ export default function DashboardPage() {
       fetchEndpoint(recentTasksUrl, setRecentTasks, 'Failed to load recent tasks'),
       fetchEndpoint(pendingTasksUrl, setPendingApprovalTasks, 'Failed to load pending tasks (approval requests)'),
       fetchEndpoint('http://localhost:3001/progress/task-completion-rate', setOverallCompletion, 'Failed to load overall completion rate'),
+      fetchEndpoint('http://localhost:3001/tasks/summary/by-priority', setPrioritySummary, 'Failed to load priority summary'),
     ]);
     if (fetchErrors.length > 0) {
       setError(`Some dashboard data could not be loaded: ${fetchErrors.join('; ')}. Please ensure your backend is running and all endpoints are accessible.`);
@@ -217,6 +224,84 @@ export default function DashboardPage() {
       fetchData();
     }
   }, [loading, user, fetchData]);
+
+
+const priorityChartData = {
+    labels: prioritySummary.map(p => p.priority),
+    datasets: [{
+        data: prioritySummary.map(p => p.count),
+        backgroundColor: [
+            'rgba(239, 68, 68, 0.7)', // HIGH
+            'rgba(251, 191, 36, 0.7)', // MEDIUM
+            'rgba(59, 130, 246, 0.7)', // LOW
+        ],
+    }],
+}
+
+
+// Data preparation for the chart
+const workloadChartData = {
+  labels: workloadDistribution.map(d => d.username),
+  datasets: [
+    {
+      label: 'Pending',
+      data: workloadDistribution.map(d => d.statusBreakdown.PENDING || 0),
+      backgroundColor: 'rgba(251, 191, 36, 0.7)', // amber color
+    },
+    {
+      label: 'Approved',
+      data: workloadDistribution.map(d => d.statusBreakdown.APPROVED || 0),
+      backgroundColor: 'rgba(59, 130, 246, 0.7)', // blue color
+    },
+    {
+      label: 'Completed',
+      data: workloadDistribution.map(d => d.statusBreakdown.COMPLETED || 0),
+      backgroundColor: 'rgba(16, 185, 129, 0.7)', // emerald color
+    },
+    {
+      label: 'Rejected',
+      data: workloadDistribution.map(d => d.statusBreakdown.REJECTED || 0),
+      backgroundColor: 'rgba(239, 68, 68, 0.7)', // red color
+    },
+  ],
+};
+
+const workloadChartOptions = {
+  responsive: true,
+  plugins: {
+    legend: { position: 'top' as const },
+    title: { display: true, text: 'Workload Distribution by Status' },
+  },
+  scales: {
+    x: { stacked: true },
+    y: { stacked: true, beginAtZero: true },
+  },
+};
+const totalHoursChartData = {
+  labels: totalHoursPerUser.map(u => u.username),
+  datasets: [
+    {
+      label: 'Total Hours Logged',
+      data: totalHoursPerUser.map(u => u.totalHours),
+      backgroundColor: 'rgba(139, 92, 246, 0.6)', // violet color
+      borderColor: 'rgba(139, 92, 246, 1)',
+      borderWidth: 1,
+    },
+  ],
+};
+
+const totalHoursChartOptions = {
+  indexAxis: "y" as const, // Makes it a horizontal bar chart for better readability
+  responsive: true,
+  plugins: {
+    legend: { display: false },
+    title: { display: true, text: 'Total Hours Logged Per User' },
+  },
+  scales: {
+    x: { beginAtZero: true },
+  },
+};
+
 
   const handleDownloadPdf = async () => {
     const downloadUrl = reportPeriod === 'weekly'
@@ -760,6 +845,18 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+              <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 ...">
+  <h2 className="card-title ...">Workload Distribution</h2>
+  {/* Filter inputs remain here  */}
+  
+  {workloadDistribution.length === 0 ? (
+    <p className="text-lg italic ...">No workload data available...</p>
+  ) : (
+    <div className="h-96 w-full">
+        <Bar data={workloadChartData} options={workloadChartOptions} />
+    </div>
+  )}
+</div>
 
               <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300">
                 <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100 mb-4">Total Hours Logged</h2>
@@ -835,7 +932,28 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+        
+<div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 ...">
+  <h2 className="card-title ...">Total Hours Logged</h2>
+  {/* Filter inputs remain here  */}
+  
+  {totalHoursPerUser.length === 0 ? (
+    <p className="text-lg italic ...">No time logs available...</p>
+  ) : (
+    <div className="h-96 w-full">
+        <Bar data={totalHoursChartData} options={totalHoursChartOptions} />
+    </div>
+  )}
+</div>
 
+<div className="card bg-white dark:bg-gray-800 ...">
+    <div className="card-body">
+        <h2 className="card-title">Task Priority Breakdown</h2>
+        <div className="h-64 w-full flex justify-center">
+            <Pie data={priorityChartData} />
+        </div>
+    </div>
+</div>
         {isCreateTaskModalOpen && (
           <dialog id="create_task_modal" className="modal modal-open">
             <div className="modal-box bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-lg">
