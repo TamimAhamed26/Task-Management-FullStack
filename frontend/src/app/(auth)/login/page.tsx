@@ -46,7 +46,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-base-200 via-base-300 to-base-100 flex items-center justify-center px-4 py-8">
-      {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-secondary/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
@@ -57,7 +56,6 @@ export default function LoginPage() {
           
           {/* Left Side - Branding & Illustration */}
           <div className="relative bg-gradient-to-br from-primary to-secondary p-12 flex flex-col justify-center items-center text-primary-content overflow-hidden">
-            {/* Decorative elements */}
             <div className="absolute top-10 left-10 w-20 h-20 border border-primary-content/20 rounded-full"></div>
             <div className="absolute bottom-10 right-10 w-32 h-32 border border-primary-content/10 rounded-full"></div>
             <div className="absolute top-1/2 left-0 w-4 h-32 bg-primary-content/10 rounded-r-full"></div>

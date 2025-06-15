@@ -16,7 +16,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
-import { PriorityLevel, Task } from '../entities/task.entity';
+import { PriorityLevel, Task, TaskStatus } from '../entities/task.entity';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { TaskDto } from './dto/task.dto';
 import { SetDeadlinePriorityDto } from './dto/set-deadline-priority.dto';
@@ -208,12 +208,29 @@ export class TaskController {
     return this.taskService.getManagerOverview(userId);
   }
 
-  @Get('reports/overdue')
-  @Roles('MANAGER')
-  async getOverdueTasks(@GetUser('id') userId: number): Promise<OverdueTaskDto[]> {
-    return this.taskService.getOverdueTasks(userId);
-  }
 
+@Get('reports/overdue')
+@Roles('MANAGER')
+async getOverdueTasks(
+  @GetUser('id') userId: number,
+  @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+  @Query('priority') priority?: PriorityLevel,
+  @Query('status') status?: TaskStatus,
+  @Query('dueDateStart') dueDateStart?: string,
+  @Query('dueDateEnd') dueDateEnd?: string,
+  @Query('sortField') sortField: string = 'dueDate',
+  @Query('sortOrder') sortOrder: 'ASC' | 'DESC' = 'ASC',
+  @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+  @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit?: number
+) {
+  return this.taskService.getOverdueTasks(
+    userId,
+    { projectId, priority, status, dueDateStart, dueDateEnd },
+    { field: sortField, order: sortOrder },
+    page,
+    limit
+  );
+}
   @Get('projects')
   @Roles('MANAGER', 'COLLABORATOR')
   async getProjects(@GetUser('id') userId: number): Promise<ProjectDto[]> {

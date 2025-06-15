@@ -19,6 +19,7 @@ import '/node_modules/react-grid-layout/css/styles.css';
 import '/node_modules/react-resizable/css/styles.css';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
+import Link from 'next/link';
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
 interface TaskDto {
@@ -139,6 +140,7 @@ export default function DashboardPage() {
   const [priorityFilterProjectId, setPriorityFilterProjectId] = useState<number | undefined>(undefined);
   const [reportDatePreset, setReportDatePreset] = useState<string>('last7');
   const [reportStartDate, setReportStartDate] = useState<Date | null>(new Date());
+  const [overdueTasksTotal, setOverdueTasksTotal] = useState<number>(0);
   const [reportEndDate, setReportEndDate] = useState<Date | null>(new Date());
   const [customReportRange, setCustomReportRange] = useState<[Date | null, Date | null]>([null, null]);
 
@@ -230,8 +232,12 @@ useEffect(() => {
         fetchErrors.push(errorMsg);
       }
     };
+fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
+  setOverdueTasks(response.data || []);
+  setOverdueTasksTotal(response.total || 0);
+}, 'Failed to load overdue tasks');
 
-    const recentTasksUrl = recentTasksProjectId
+  const recentTasksUrl = recentTasksProjectId
       ? `http://localhost:3001/tasks/recent?projectId=${recentTasksProjectId}`
       : 'http://localhost:3001/tasks/recent';
 
@@ -275,7 +281,7 @@ useEffect(() => {
 
     await Promise.all([
       fetchEndpoint('http://localhost:3001/tasks/overview', setOverview, 'Failed to load task overview'),
-      fetchEndpoint('http://localhost:3001/tasks/reports/overdue', setOverdueTasks, 'Failed to load overdue tasks'),
+      fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => setOverdueTasks(response.data || []), 'Failed to load overdue tasks'),
       fetchEndpoint('http://localhost:3001/tasks/projects', setProjects, 'Failed to load projects'),
       fetchEndpoint(reportUrl, setCurrentReport, 'Failed to load report'),
       fetchEndpoint(workloadUrl, setWorkloadDistribution, 'Failed to load workload distribution'),
@@ -284,6 +290,7 @@ useEffect(() => {
       fetchEndpoint(pendingTasksUrl, setPendingApprovalTasks, 'Failed to load pending tasks (approval requests)'),
       fetchEndpoint('http://localhost:3001/progress/task-completion-rate', setOverallCompletion, 'Failed to load overall completion rate'),
       fetchEndpoint(prioritySummaryUrl, setPrioritySummary, 'Failed to load priority summary'),
+      
     ]);
 
     if (fetchErrors.length > 0) {
@@ -660,7 +667,7 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="card bg-gradient-to-br from-emerald-600 to-emerald-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
+            <div className="card bg-gradient-to-br from-emerald-600 to-emerald-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 mb-6">
               <div className="card-body p-6">
                 <h2 className="card-title text-2xl font-extrabold">Overall Progress</h2>
                 <div className="flex items-center justify-center my-6">
@@ -682,7 +689,7 @@ useEffect(() => {
                 
                 <div className="flex flex-col gap-4 mt-4">
                   <select
-                    className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-900"
+    className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
                     value={reportDatePreset}
                     onChange={(e) => setReportDatePreset(e.target.value)}
                   >
@@ -732,19 +739,18 @@ useEffect(() => {
                         {new Date(task.dueDate).toLocaleDateString()})
                       </li>
                     ))}
-                    {overdueTasks.length > 5 && (
-                      <li className="text-lg italic">And {overdueTasks.length - 5} more...</li>
-                    )}
+                   {overdueTasksTotal > 5 && (
+  <li className="text-lg italic">And {overdueTasksTotal - 5} more...</li>
+)}
                   </ul>
                 )}
                 <div className="card-actions justify-end mt-6">
-                  <a
-                    href="/tasks/overdue"
-                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-rose-600 dark:hover:text-rose-600 rounded-full"
-                  >
-                    View Overdue
-                  </a>
-                </div>
+<Link
+  href="/overdue"
+  className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-rose-600 dark:hover:text-rose-600 rounded-full"
+>
+  View Overdue
+</Link>               </div>
               </div>
             </div>
 
@@ -800,14 +806,14 @@ useEffect(() => {
         <span className="label-text text-white dark:text-gray-100">Filter by Project</span>
       </label>
       <select
-        className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-900"
+        className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
         value={pendingTasksFilterProjectId || ''}
         onChange={(e) => setPendingTasksFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
       >
         <option value="">All Projects</option>
         {projects.map(project => (
           <option key={project.id} value={project.id}>
-            {project.name}
+        {project.name}
           </option>
         ))}
       </select>

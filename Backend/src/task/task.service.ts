@@ -340,28 +340,37 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     };
   }
 
-  async assignCollaborator(taskId: number, collaboratorId: number, userId: number): Promise<Task> {
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('Task not found.');
+ async assignCollaborator(taskId: number, collaboratorId: number, userId: number): Promise<Task> {
+const task = await this.taskRepository.findOne({ where: { id: taskId } });
+if (!task) throw new NotFoundException('Task not found');
 
-    const collaborator = await this.userRepository.findOne({
-      where: { id: collaboratorId },
-      relations: ['role'],
-    });
+const collaborator = await this.userRepository.findOne({
+where: { id: collaboratorId },
+relations: ['role'],
+});
 
-    if (!collaborator || collaborator.role?.name !== 'Collaborator') {
-      throw new BadRequestException('Assigned user must be a Collaborator.');
-    }
+if (!collaborator || collaborator.role?.name !== 'Collaborator') {
+  throw new BadRequestException('Assigned user must be a Collaborator');
+}
 
-    task.assignedTo = collaborator;
-    const updatedTask = await this.taskRepository.save(task);
+task.assignedTo = collaborator;
+const updatedTask = await this.taskRepository.save(task);
 
-    await this.logTaskHistory(task, userId, 'Collaborator Assigned', {
-      collaboratorUsername: collaborator.username,
-    });
+await this.logTaskHistory(task, userId, 'Collaborator Assigned', {
+collaboratorUsername: collaborator.username,
+});
 
-    return updatedTask;
-  }
+const notification = this.notificationRepository.create({
+notificationType: 'TASK_ASSIGNED',
+message: `You were assigned to task: ${task.title}`,
+recipient: { id: collaboratorId },
+relatedTaskId: task.id,
+task: updatedTask,
+});
+await this.notificationRepository.save(notification);
+
+return updatedTask;
+}
 
 async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto[]> {
     if (projectId && projectName) {
@@ -653,35 +662,99 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
       })),
     };
   }
-
-  async getOverdueTasks(userId: number): Promise<OverdueTaskDto[]> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['role'],
-    });
-    if (!user || user.role.name !== 'Manager') {
-      throw new ForbiddenException('Only managers can access overdue tasks.');
-    }
-
-    const currentDate = new Date('2025-06-11T19:29:00+06:00'); // Current date/time in +06 timezone
-    const tasks = await this.taskRepository.find({
-      where: {
-        dueDate: LessThan(currentDate),
-        isCompleted: false,
-      },
-      relations: ['assignedTo'],
-      order: { dueDate: 'ASC' },
-    });
-
-    return tasks.map(task => ({
-      id: task.id,
-      title: task.title,
-      assigneeUsername: task.assignedTo?.username || 'Unassigned',
-      dueDate: task.dueDate,
-      priority: task.priority,
-      status: task.status,
-    }));
+async getOverdueTasks(
+  userId: number,
+  filters: {
+    projectId?: number;
+    priority?: PriorityLevel;
+    status?: TaskStatus;
+    dueDateStart?: string;
+    dueDateEnd?: string;
+  },
+  sort: { field: string; order: 'ASC' | 'DESC' } = { field: 'dueDate', order: 'ASC' },
+  page: number = 1,
+  limit: number = 10
+): Promise<{ data: OverdueTaskDto[]; total: number; page: number; limit: number }> {
+  const user = await this.userRepository.findOne({
+    where: { id: userId },
+    relations: ['role'],
+  });
+  if (!user || user.role.name !== 'Manager') {
+    throw new ForbiddenException('Only managers can access overdue tasks.');
   }
+
+  const validSortFields = ['id', 'title', 'dueDate', 'priority', 'status', 'assigneeUsername', 'projectName', 'daysOverdue'];
+  if (!validSortFields.includes(sort.field)) {
+    throw new BadRequestException(`Invalid sort field: ${sort.field}`);
+  }
+
+  const query = this.taskRepository
+    .createQueryBuilder('task')
+    .leftJoinAndSelect('task.assignedTo', 'assignedTo')
+    .leftJoinAndSelect('task.project', 'project')
+    .where('task.dueDate < :now', { now: new Date().toISOString() })
+    .andWhere('task.isCompleted = false');
+
+  if (filters.projectId) {
+    query.andWhere('task.projectId = :projectId', { projectId: filters.projectId });
+  }
+  if (filters.priority) {
+    query.andWhere('task.priority = :priority', { priority: filters.priority });
+  }
+  if (filters.status) {
+    query.andWhere('task.status = :status', { status: filters.status });
+  }
+  if (filters.dueDateStart) {
+    query.andWhere('task.dueDate >= :dueDateStart', { dueDateStart: filters.dueDateStart });
+  }
+  if (filters.dueDateEnd) {
+    query.andWhere('task.dueDate <= :dueDateEnd', { dueDateEnd: filters.dueDateEnd });
+  }
+  
+  if (sort.field === 'daysOverdue') {
+      // Note: Sorting by a calculated field can be complex depending on the DB.
+      // A portable way is to sort in the application, but for DB-level sorting,
+      // this might need adjustment based on the specific SQL dialect.
+      // For now, we sort by dueDate, as daysOverdue is directly derived from it.
+      query.orderBy(`task.dueDate`, sort.order === 'DESC' ? 'ASC' : 'DESC'); // Older dates first for DESC overdue
+  } else if (sort.field === 'assigneeUsername') {
+    query.orderBy('assignedTo.username', sort.order, 'NULLS LAST');
+  } else if (sort.field === 'projectName') {
+    query.orderBy('project.name', sort.order, 'NULLS LAST');
+  } else {
+    query.orderBy(`task.${sort.field}`, sort.order);
+  }
+
+  query.skip((page - 1) * limit).take(limit);
+  const [tasks, total] = await query.getManyAndCount();
+
+  const now = new Date();
+  return {
+    data: tasks.map(task => {
+      // FIX: Check for dueDate to satisfy TypeScript and prevent runtime errors
+      let daysOverdue = 0;
+      if (task.dueDate) {
+        const dueDate = new Date(task.dueDate);
+        daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 3600 * 24));
+      }
+      
+      return {
+        id: task.id,
+        title: task.title,
+        assigneeUsername: task.assignedTo?.username || 'Unassigned',
+        dueDate: task.dueDate!, // We can assert it's non-null here because of the query
+        priority: task.priority,
+        status: task.status,
+        projectId: task.project?.id,
+        projectName: task.project?.name,
+        daysOverdue: daysOverdue,
+      }
+    }),
+    total,
+    page,
+    limit,
+  };
+}
  async createTaskComment(taskId: number, userId: number, content: string, parentCommentId?: number): Promise<TaskCommentDto> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },

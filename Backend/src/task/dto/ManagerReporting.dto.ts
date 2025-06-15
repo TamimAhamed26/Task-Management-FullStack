@@ -1,3 +1,4 @@
+import { IsNumber } from "class-validator";
 import { PriorityLevel } from "src/entities/task.entity";
 
 export class TaskStatusSummary {
@@ -23,6 +24,8 @@ export class OverdueTaskDto {
   dueDate?: Date;
   priority: string;
   status: string;
+  @IsNumber()
+  daysOverdue: number;
 }
 
 export class ProjectDto {
