@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import Link from 'next/link';
 
 export default function TopBar() {
   const { user } = useAuthGuard();
@@ -13,12 +14,12 @@ export default function TopBar() {
   return (
     <div className="navbar bg-white/80 backdrop-blur-md shadow-2xl rounded-2xl mb-10 p-4 sticky top-4 z-50">
       <div className="flex-1">
-        <a
+        <Link
           href="/dashboard"
           className="btn btn-ghost text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600"
         >
           TaskManager Pro
-        </a>
+        </Link>
         <span className="ml-4 text-xl font-semibold text-gray-700 capitalize">
   {user.role.name.toLowerCase()} Dashboard
         </span>

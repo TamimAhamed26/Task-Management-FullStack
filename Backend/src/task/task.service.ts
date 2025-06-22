@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, LessThan, QueryRunner, Repository } from 'typeorm';
+import { Between, ILike, LessThan, Not, QueryRunner, Repository } from 'typeorm';
 import { PriorityLevel, Task, TaskStatus } from '../entities/task.entity';
 import { User } from '../entities/user.entity';
 import { TaskDto } from './dto/task.dto';
@@ -22,13 +22,15 @@ import { FileService } from 'src/file/file.service';
 import { TimeLog } from 'src/entities/time-log.entity';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
-import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto, TaskStatusSummary } from './dto/ManagerReporting.dto';
+import { ManagerOverviewDto, ManagerTeamOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto, TaskStatusSummary, TeamCompletionRate, TeamStatusSummary, TeamTotalHoursLogged } from './dto/ManagerReporting.dto';
 import { Project } from 'src/entities/project.entity';
 import { Team } from 'src/entities/team.entity';
 import { CreateTaskDto,TaskPriority } from './dto/createtaskdto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
+import { In  } from 'typeorm'; 
+import { AddTeamMemberDto, AddTeamToProjectDto } from './dto/ProjectTeam.dto';
 
 @Injectable()
 export class TaskService {
@@ -81,7 +83,6 @@ export class TaskService {
     }
   }
 async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto> {
-  // Validate user is a Manager
   const user = await this.userRepository.findOne({
     where: { id: userId },
     relations: ['role'],
@@ -92,7 +93,7 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
 
   const { title, description, deadline, priority, assignedToId, parentTaskId, projectId } = createTaskDto;
 
-  // Validate assignedToId is a Collaborator, if provided
+  // Validate assignedToId is a Collaborator
   if (assignedToId) {
     const assignee = await this.userRepository.findOne({
       where: { id: assignedToId },
@@ -103,7 +104,7 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     }
   }
 
-  // Validate parentTaskId, if provided
+  // Validate parentTaskId
   if (parentTaskId) {
     const parentTask = await this.taskRepository.findOne({ where: { id: parentTaskId } });
     if (!parentTask) {
@@ -122,7 +123,7 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     [TaskPriority.LOW]: PriorityLevel.LOW,
     [TaskPriority.MEDIUM]: PriorityLevel.MEDIUM,
     [TaskPriority.HIGH]: PriorityLevel.HIGH,
-    [TaskPriority.URGENT]: PriorityLevel.HIGH, // Map URGENT to HIGH
+    [TaskPriority.URGENT]: PriorityLevel.HIGH, 
   };
 
   const task = this.taskRepository.create({
@@ -287,7 +288,7 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     const tasks = await this.taskRepository.find({
       where: whereClause,
       relations: ['createdBy', 'assignedTo', 'approvedBy'],
-      order: { createdAt: 'DESC' },
+      order: { updatedAt: 'DESC' },
       take: 5,
     });
 
@@ -509,12 +510,55 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
   async rejectTask(taskId: number, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
-      relations: ['createdBy'],
+      relations: ['createdBy', 'assignedTo'], // Include assignedTo for notification
     });
     if (!task) throw new NotFoundException('Task not found');
 
     if (task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.PENDING_APPROVAL) {
       throw new BadRequestException('Only completed or pending approval tasks can be rejected');
+    }
+
+    const oldStatus = task.status; 
+    task.status = TaskStatus.REJECTED;
+    task.isCompleted = false;
+    task.approvedBy = null;
+    await this.taskRepository.save(task); 
+    await this.logTaskHistory(
+      task,
+      userId,
+      'Task Rejected',
+      {
+        oldStatus: oldStatus,
+        newStatus: TaskStatus.REJECTED,
+        title: task.title,
+      },
+    );
+
+    if (task.assignedTo) {
+      const notification = this.notificationRepository.create({
+        notificationType: 'TASK_REJECTED',
+        message: `Your task "${task.title}" has been rejected.`,
+        recipient: { id: task.assignedTo.id },
+        relatedTaskId: task.id,
+        task: task,
+      });
+      await this.notificationRepository.save(notification);
+    }
+  }
+
+  async deleteTaskPermanently(taskId: number, userId: number): Promise<void> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['createdBy'], 
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can permanently delete tasks.');
     }
 
     const queryRunner = this.taskRepository.manager.connection.createQueryRunner();
@@ -525,14 +569,13 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
       await this.logTaskHistory(
         task,
         userId,
-        'Task Rejected',
+        'Task Permanently Deleted',
         {
-          status: task.status,
           title: task.title,
+          status: task.status,
         },
-        queryRunner,
+        queryRunner, 
       );
-
       await queryRunner.manager.remove(task);
 
       await queryRunner.commitTransaction();
@@ -542,7 +585,7 @@ async getPendingTasks(projectId?: number, projectName?: string): Promise<TaskDto
     } finally {
       await queryRunner.release();
     }
-  }
+}
   async markTaskAsCompleted(taskId: number, userId: number): Promise<void> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
@@ -702,7 +745,16 @@ async getOverdueTasks(
     query.andWhere('task.priority = :priority', { priority: filters.priority });
   }
   if (filters.status) {
-    query.andWhere('task.status = :status', { status: filters.status });
+    // Exclude COMPLETED and REJECTED statuses from results, even if requested
+    if (filters.status === TaskStatus.COMPLETED || filters.status === TaskStatus.REJECTED) {
+      query.andWhere('1 = 0'); // Always false, so no results
+    } else {
+      query.andWhere('task.status = :status', { status: filters.status });
+      query.andWhere('task.status NOT IN (:...excludedStatuses)', { excludedStatuses: [TaskStatus.COMPLETED, TaskStatus.REJECTED] });
+    }
+  } else {
+    // Always exclude COMPLETED and REJECTED if no status filter
+    query.andWhere('task.status NOT IN (:...excludedStatuses)', { excludedStatuses: [TaskStatus.COMPLETED, TaskStatus.REJECTED] });
   }
   if (filters.dueDateStart) {
     query.andWhere('task.dueDate >= :dueDateStart', { dueDateStart: filters.dueDateStart });
@@ -712,10 +764,7 @@ async getOverdueTasks(
   }
   
   if (sort.field === 'daysOverdue') {
-      // Note: Sorting by a calculated field can be complex depending on the DB.
-      // A portable way is to sort in the application, but for DB-level sorting,
-      // this might need adjustment based on the specific SQL dialect.
-      // For now, we sort by dueDate, as daysOverdue is directly derived from it.
+  
       query.orderBy(`task.dueDate`, sort.order === 'DESC' ? 'ASC' : 'DESC'); // Older dates first for DESC overdue
   } else if (sort.field === 'assigneeUsername') {
     query.orderBy('assignedTo.username', sort.order, 'NULLS LAST');
@@ -731,7 +780,6 @@ async getOverdueTasks(
   const now = new Date();
   return {
     data: tasks.map(task => {
-      // FIX: Check for dueDate to satisfy TypeScript and prevent runtime errors
       let daysOverdue = 0;
       if (task.dueDate) {
         const dueDate = new Date(task.dueDate);
@@ -742,7 +790,7 @@ async getOverdueTasks(
         id: task.id,
         title: task.title,
         assigneeUsername: task.assignedTo?.username || 'Unassigned',
-        dueDate: task.dueDate!, // We can assert it's non-null here because of the query
+        dueDate: task.dueDate!, 
         priority: task.priority,
         status: task.status,
         projectId: task.project?.id,
@@ -755,25 +803,20 @@ async getOverdueTasks(
     limit,
   };
 }
- async createTaskComment(taskId: number, userId: number, content: string, parentCommentId?: number): Promise<TaskCommentDto> {
+ async createTaskComment(
+    taskId: number,
+    userId: number,
+    content: string,
+    parentCommentId?: number,
+  ): Promise<TaskCommentDto> {
     const task = await this.taskRepository.findOne({
       where: { id: taskId },
       relations: ['assignedTo'],
     });
     if (!task) throw new NotFoundException('Task not found');
 
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['role'],
-    });
+    const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-
-    const isManager = user.role.name === 'Manager';
-    const isAssigned = user.id === task.assignedTo?.id;
-
-    if (!isManager && !isAssigned) {
-      throw new ForbiddenException('Only managers or assigned users can comment.');
-    }
 
     if (parentCommentId) {
       const parentComment = await this.commentRepository.findOne({
@@ -782,53 +825,44 @@ async getOverdueTasks(
       if (!parentComment) throw new NotFoundException('Parent comment not found');
     }
 
-    const mentionUsernames = content.match(/@(\w+)/g)?.map(m => m.slice(1)) || [];
-    const mentionedUsers = mentionUsernames.length > 0
-      ? await this.userRepository.find({
-          where: mentionUsernames.map(username => ({ username, role: { name: 'Collaborator' } })),
-          relations: ['role'],
-          select: ['id', 'username'],
-        })
-      : [];
+    // Extract mentioned user IDs from content (e.g., @username)
+    const mentionRegex = /@(\w+)/g;
+    const mentions: number[] = [];
+    let match;
+    while ((match = mentionRegex.exec(content))) {
+      const username = match[1];
+      const mentionedUser = await this.userRepository.findOne({ where: { username } });
+      if (mentionedUser && !mentions.includes(mentionedUser.id)) {
+        mentions.push(mentionedUser.id);
+      }
+    }
 
-    if (mentionedUsers.length < mentionUsernames.length) {
-      const invalidUsernames = mentionUsernames.filter(
-        name => !mentionedUsers.some(u => u.username === name),
-      );
-      throw new BadRequestException(`Invalid or unauthorized mentions: ${invalidUsernames.join(', ')}`);
+    // Automatically include assignee in mentions if not already included
+    if (task.assignedTo && !mentions.includes(task.assignedTo.id)) {
+      mentions.push(task.assignedTo.id);
     }
 
     const comment = this.commentRepository.create({
-      task,
+      task: { id: taskId },
       author: user,
       content,
-      mentions: mentionedUsers.map(u => u.id),
+      mentions,
       parentCommentId,
     });
 
     const savedComment = await this.commentRepository.save(comment);
 
-    // Create notification for mentioned users and task assignee
-    if (mentionedUsers.length > 0 || task.assignedTo) {
-      const recipients = new Set([...mentionedUsers.map(u => u.id), task.assignedTo?.id].filter(id => id && id !== userId));
-      for (const recipientId of recipients) {
-        const notification = this.notificationRepository.create({
-          notificationType: 'COMMENT',
-          message: `${user.username} commented on task: ${task.title}`,
-          recipient: { id: recipientId },
-          relatedTaskId: task.id,
-          task,
-        });
-        await this.notificationRepository.save(notification);
-      }
+    // Send notifications to mentioned users and assignee
+    for (const mentionId of mentions) {
+      const notification = this.notificationRepository.create({
+        notificationType: 'COMMENT_MENTION',
+        message: `You were mentioned in a comment on task "${task.title}" by ${user.username}`,
+        recipient: { id: mentionId },
+        relatedTaskId: taskId,
+        task,
+      });
+      await this.notificationRepository.save(notification);
     }
-
-    await this.logTaskHistory(task, userId, 'Comment Added', {
-      commentId: savedComment.id,
-      content: savedComment.content,
-      authorUsername: user.username,
-      parentCommentId: savedComment.parentCommentId,
-    });
 
     return {
       id: savedComment.id,
@@ -838,47 +872,56 @@ async getOverdueTasks(
       mentions: savedComment.mentions,
       createdAt: savedComment.createdAt,
       parentCommentId: savedComment.parentCommentId,
+      children: [],
     };
   }
 
   async getTaskComments(taskId: number): Promise<TaskCommentDto[]> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('Task not found.');
+    if (!task) throw new NotFoundException('Task not found');
 
+    // Ensure task relation is loaded to avoid undefined issues
     const comments = await this.commentRepository.find({
       where: { task: { id: taskId } },
-      relations: ['task', 'author', 'parentComment'],
+      relations: ['author', 'task'],
       order: { createdAt: 'ASC' },
     });
 
     // Build threaded comment structure
     const commentMap = new Map<number, TaskCommentDto>();
-    const threadedComments: TaskCommentDto[] = [];
+    const rootComments: TaskCommentDto[] = [];
 
     for (const comment of comments) {
-      const commentDto: TaskCommentDto = {
+      // Defensive check for comment.task
+      if (!comment.task) {
+        console.warn(`Comment with ID ${comment.id} has no associated task`);
+        continue; // Skip this comment to avoid errors
+      }
+
+      const dto: TaskCommentDto = {
         id: comment.id,
         taskId: comment.task.id,
-        authorUsername: comment.author.username,
+        authorUsername: comment.author?.username || 'Unknown',
         content: comment.content,
-        mentions: comment.mentions,
+        mentions: comment.mentions || [],
         createdAt: comment.createdAt,
         parentCommentId: comment.parentCommentId,
-        children: [], // Initialize children array
+        children: [],
       };
-      commentMap.set(comment.id, commentDto);
+      commentMap.set(comment.id, dto);
 
       if (!comment.parentCommentId) {
-        threadedComments.push(commentDto);
+        rootComments.push(dto);
       } else {
         const parent = commentMap.get(comment.parentCommentId);
         if (parent) {
-          parent.children = parent.children ? [...parent.children, commentDto] : [commentDto];
+          parent.children = parent.children || [];
+          parent.children.push(dto);
         }
       }
     }
 
-    return threadedComments;
+    return rootComments;
   }
   async uploadTaskAttachment(taskId: number, userId: number, file: Express.Multer.File): Promise<TaskAttachmentDto> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
@@ -1099,27 +1142,32 @@ async getOverdueTasks(
 
 
 
-async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto[]> {
+async getTaskPrioritySummary(projectId?: number, teamId?: number): Promise<TaskPrioritySummaryDto[]> {
   const query = this.taskRepository
     .createQueryBuilder('task')
     .select('task.priority', 'priority')
     .addSelect('COUNT(task.id)', 'count');
 
   if (projectId) {
-    query.where('task.projectId = :projectId', { projectId });
+    query.andWhere('task.projectId = :projectId', { projectId });
+  }
+
+  if (teamId) {
+    query.leftJoin('task.project', 'project')
+         .leftJoin('project.teams', 'team')
+         .andWhere('team.id = :teamId', { teamId });
   }
 
   const prioritySummary = await query
     .groupBy('task.priority')
     .getRawMany();
-
   return prioritySummary.map(row => ({
     priority: row.priority,
     count: parseInt(row.count, 10),
   }));
 }
   
-  async getProjects(userId: number): Promise<ProjectDto[]> {
+ async getProjects(userId: number): Promise<ProjectDto[]> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
       relations: ['role', 'teams'],
@@ -1134,8 +1182,8 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
 
     const projects = await this.projectRepository
       .createQueryBuilder('project')
-      .leftJoinAndSelect('project.team', 'team')
-      .leftJoinAndSelect('team.members', 'members')
+      .leftJoinAndSelect('project.teams', 'teams')
+      .leftJoinAndSelect('teams.members', 'members')
       .leftJoinAndSelect('project.owner', 'owner')
       .where('members.id = :userId OR project.ownerId = :userId', { userId })
       .getMany();
@@ -1145,11 +1193,20 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
       name: project.name,
       description: project.description || '',
       ownerUsername: project.owner.username,
-      teamMembers: project.team?.members.map(member => member.username) || [],
+      teamMembers: project.teams.flatMap(team => team.members.map(member => member.username)) || [],
     }));
   }
 
-  async getProjectTasks(projectId: number, userId: number, page: number = 1, limit: number = 10): Promise<{ data: TaskDto[]; total: number; page: number; limit: number }> {
+async getProjectTasks(
+    projectId: number,
+    userId: number,
+    page: number = 1,
+    limit: number = 10,
+    keyword?: string,
+    status?: string,
+    priority?: string,
+    assignedToUsername?: string,
+  ): Promise<{ data: TaskDto[]; total: number; page: number; limit: number }> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
       relations: ['role', 'teams'],
@@ -1164,22 +1221,41 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
 
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
-      relations: ['team', 'team.members'],
+      relations: ['teams', 'teams.members'],
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    const isMember = project.team?.members.some(member => member.id === userId) || project.ownerId === userId;
+    const isMember = project.teams.some(team => team.members.some(member => member.id === userId)) ||
+      project.ownerId === userId;
     if (!isManager && !isMember) {
       throw new ForbiddenException('User is not a member of this project');
     }
 
-    const [tasks, total] = await this.taskRepository.findAndCount({
-      where: { projectId },
-      relations: ['createdBy', 'assignedTo', 'approvedBy'],
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const query = this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.createdBy', 'createdBy')
+      .leftJoinAndSelect('task.assignedTo', 'assignedTo')
+      .leftJoinAndSelect('task.approvedBy', 'approvedBy')
+      .where('task.projectId = :projectId', { projectId });
+
+    if (keyword) {
+      query.andWhere('task.title ILIKE :keyword', { keyword: `%${keyword}%` });
+    }
+    if (status) {
+      query.andWhere('task.status = :status', { status });
+    }
+    if (priority) {
+      query.andWhere('task.priority = :priority', { priority });
+    }
+    if (assignedToUsername) {
+      query.andWhere('assignedTo.username = :assignedToUsername', { assignedToUsername });
+    }
+
+    query.orderBy('task.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [tasks, total] = await query.getManyAndCount();
 
     return {
       data: tasks.map(task => ({
@@ -1203,9 +1279,9 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
     };
   }
 
-
   
-  async addTeamMember(projectId: number, currentUserId: number, memberId: number): Promise<void> {
+  async addTeamMember(projectId: number, currentUserId: number, addTeamMemberDto: AddTeamMemberDto): Promise<void> {
+    const { memberId, teamId } = addTeamMemberDto;
     const user = await this.userRepository.findOne({
       where: { id: currentUserId },
       relations: ['role'],
@@ -1216,12 +1292,13 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
 
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
-      relations: ['team', 'team.members'],
+      relations: ['teams', 'teams.members'],
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    if (!project.team) {
-      throw new BadRequestException('Project has no associated team. Please create a team first.');
+    const team = project.teams.find(t => t.id === teamId);
+    if (!team) {
+      throw new BadRequestException('Team not associated with project');
     }
 
     const member = await this.userRepository.findOne({
@@ -1232,16 +1309,16 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
       throw new BadRequestException('Member must be a Collaborator');
     }
 
-    if (project.team.members.some(m => m.id === memberId)) {
+    if (team.members.some(m => m.id === memberId)) {
       throw new BadRequestException('User is already a team member');
     }
 
-    project.team.members.push(member);
-    await this.teamRepository.save(project.team);
+    team.members.push(member);
+    await this.teamRepository.save(team);
 
     const notification = this.notificationRepository.create({
       notificationType: 'TEAM_ADDED',
-      message: `You were added to project: ${project.name}`,
+      message: `You were added to team ${team.name} for project: ${project.name}`,
       isRead: false,
       recipient: { id: memberId },
       relatedTaskId: undefined,
@@ -1250,12 +1327,10 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
     });
     await this.notificationRepository.save(notification);
 
-    // Optionally, fetch the member's username for a success message
-    const memberName = member.username || `ID ${memberId}`;
-    console.log(`${memberName} added to team for project: ${project.name}`);
+    console.log(`${member.username} added to team ${team.name} for project: ${project.name}`);
   }
-
-  async removeTeamMember(projectId: number, currentUserId: number, memberId: number): Promise<void> {
+   async removeTeamMember(projectId: number, currentUserId: number, addTeamMemberDto: AddTeamMemberDto): Promise<void> {
+    const { memberId, teamId } = addTeamMemberDto;
     const user = await this.userRepository.findOne({
       where: { id: currentUserId },
       relations: ['role'],
@@ -1266,12 +1341,13 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
 
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
-      relations: ['team', 'team.members'],
+      relations: ['teams', 'teams.members'],
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    if (!project.team) {
-      throw new BadRequestException('Project has no associated team.');
+    const team = project.teams.find(t => t.id === teamId);
+    if (!team) {
+      throw new BadRequestException('Team not associated with project');
     }
 
     const member = await this.userRepository.findOne({
@@ -1280,16 +1356,16 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
     });
     if (!member) throw new NotFoundException('Member not found');
 
-    if (!project.team.members.some(m => m.id === memberId)) {
+    if (!team.members.some(m => m.id === memberId)) {
       throw new BadRequestException('User is not a team member');
     }
 
-    project.team.members = project.team.members.filter(m => m.id !== memberId);
-    await this.teamRepository.save(project.team);
+    team.members = team.members.filter(m => m.id !== memberId);
+    await this.teamRepository.save(team);
 
     const notification = this.notificationRepository.create({
       notificationType: 'TEAM_REMOVED',
-      message: `You were removed from project: ${project.name}`,
+      message: `You were removed from team ${team.name} for project: ${project.name}`,
       isRead: false,
       recipient: { id: memberId },
       relatedTaskId: undefined,
@@ -1299,7 +1375,281 @@ async getTaskPrioritySummary(projectId?: number): Promise<TaskPrioritySummaryDto
     await this.notificationRepository.save(notification);
   }
 
+// In TaskService
+async getPendingApprovalTasks(projectId?: number, projectName?: string): Promise<TaskDto[]> {
+    if (projectId && projectName) {
+        throw new BadRequestException('Provide either projectId or projectName, not both');
+    }
 
+    const whereClause: any = { status: TaskStatus.PENDING_APPROVAL }; // Key change
+    if (projectId) {
+        const project = await this.projectRepository.findOne({ where: { id: projectId } });
+        if (!project) {
+            throw new NotFoundException(`Project with ID ${projectId} not found`);
+        }
+        whereClause.projectId = projectId;
+    } else if (projectName) {
+        const project = await this.projectRepository.findOne({ where: { name: projectName } });
+        if (!project) {
+            throw new NotFoundException(`Project with name "${projectName}" not found`);
+        }
+        whereClause.projectId = project.id;
+    }
 
- 
+    const tasks = await this.taskRepository.find({
+        where: whereClause,
+        relations: ['createdBy', 'assignedTo', 'approvedBy', 'project'],
+    });
+    return tasks.map(task => ({
+        id: task.id,
+        title: task.title,
+        description: task.description || '',
+        status: task.status,
+        priority: task.priority,
+        category: task.category || '',
+        dueDate: task.dueDate,
+        createdByUsername: task.createdBy?.username || '',
+        assignedToUsername: task.assignedTo?.username || '',
+        approvedByUsername: task.approvedBy?.username || '',
+        isCompleted: task.isCompleted,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        projectId: task.project?.id,
+        projectName: task.project?.name,
+    }));
 }
+async getManagerTeamOverview(userId: number, projectId?: number): Promise<ManagerTeamOverviewDto> {
+  const manager = await this.userRepository.findOne({
+    where: { id: userId },
+    relations: ['role', 'ownedProjects', 'ownedProjects.teams'],
+  });
+  if (!manager || manager.role.name !== 'Manager') {
+    throw new ForbiddenException('Only managers can access this view');
+  }
+
+  let relevantProjects = manager.ownedProjects;
+
+  if (projectId) {
+    relevantProjects = relevantProjects?.filter(p => p.id === projectId) || [];
+    if (relevantProjects.length === 0) {
+      throw new NotFoundException(`Project with ID ${projectId} not found or not owned by manager.`);
+    }
+  }
+
+  const teamIds: number[] = relevantProjects
+    ?.flatMap(project => project.teams.map(team => team.id))
+    .filter((id): id is number => id !== undefined) || [];
+
+  if (teamIds.length === 0) {
+    return {
+      totalTasksForTeams: 0,
+      overdueTasksForTeams: 0,
+      teamStatusSummaries: [],
+      teamTotalHoursLogged: [],
+      teamCompletionRates: []
+    };
+  }
+
+  const totalTasksForTeams = await this.taskRepository.count({
+    where: { project: { teams: { id: In(teamIds) } } },
+  });
+  const overdueTasksForTeams = await this.taskRepository.count({
+    where: {
+      project: { teams: { id: In(teamIds) } },
+      dueDate: LessThan(new Date()),
+      isCompleted: false,
+    },
+  });
+  const teamStatusSummaries: TeamStatusSummary[] = [];
+  for (const teamId of teamIds) {
+    const team = await this.teamRepository.findOne({ where: { id: teamId } });
+    if (!team) continue;
+
+    for (const status of Object.values(TaskStatus)) {
+      const count = await this.taskRepository.count({
+        where: {
+          status,
+          project: { teams: { id: teamId } },
+        },
+      });
+      teamStatusSummaries.push({ teamId, teamName: team.name, status, count });
+    }
+  }
+
+  const teamTotalHoursLogged: TeamTotalHoursLogged[] = [];
+  for (const teamId of teamIds) {
+    const team = await this.teamRepository.findOne({ where: { id: teamId }, relations: ['members'] });
+    if (!team || !team.members.length) continue;
+
+    const memberIds = team.members.map(member => member.id);
+    const result = await this.timeLogRepository
+      .createQueryBuilder('timeLog')
+      .select('SUM(timeLog.hours)', 'totalHours')
+      .where('timeLog.loggedBy.id IN (:...memberIds)', { memberIds })
+      .getRawOne();
+    const totalHours = result.totalHours ? parseFloat(result.totalHours) : 0;
+    teamTotalHoursLogged.push({ teamId, teamName: team.name, totalHours: parseFloat(totalHours.toFixed(2)) });
+  }
+
+  const teamCompletionRates: TeamCompletionRate[] = [];
+  for (const teamId of teamIds) {
+    const team = await this.teamRepository.findOne({ where: { id: teamId } });
+    if (!team) continue;
+
+    const totalTasksInTeam = await this.taskRepository.count({
+      where: { project: { teams: { id: teamId } } },
+    });
+    const completedTasksInTeam = await this.taskRepository.count({
+      where: {
+        project: { teams: { id: teamId } },
+        status: TaskStatus.COMPLETED,
+      },
+    });
+    const completionRate = totalTasksInTeam > 0 ? (completedTasksInTeam / totalTasksInTeam) * 100 : 0;
+    teamCompletionRates.push({
+      teamId,
+      teamName: team.name,
+      completionRate: parseFloat(completionRate.toFixed(2)),
+      completedTasks: completedTasksInTeam,
+      totalTasks: totalTasksInTeam,
+    });
+  }
+
+  return {
+    totalTasksForTeams,
+    overdueTasksForTeams,
+    teamStatusSummaries,
+    teamTotalHoursLogged,
+    teamCompletionRates,
+  };
+}
+  // NEW: Method to get tasks nearing deadline
+  async getTasksNearingDeadline(): Promise<TaskDto[]> {
+    const today = new Date();
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(today.getDate() + 3);
+
+    const tasks = await this.taskRepository.find({
+      where: {
+        dueDate: Between(today, threeDaysFromNow),
+        isCompleted: false,
+        status: Not(TaskStatus.COMPLETED), // Exclude already completed tasks
+      },
+      relations: ['assignedTo', 'project'],
+      order: { dueDate: 'ASC' },
+      take: 10, // Limit to 10 tasks for the dashboard widget
+    });
+
+    return tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description || '',
+      status: task.status,
+      priority: task.priority,
+      category: task.category || '',
+      dueDate: task.dueDate,
+      createdByUsername: task.createdBy?.username || '', // createdBy might not be loaded if not in relations above
+      assignedToUsername: task.assignedTo?.username || 'N/A',
+      approvedByUsername: task.approvedBy?.username || '', // approvedBy might not be loaded
+      isCompleted: task.isCompleted,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      projectId: task.project?.id,
+      projectName: task.project?.name,
+    }));
+  }
+
+ async addTeamToProject(projectId: number, currentUserId: number, addTeamToProjectDto: AddTeamToProjectDto): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can add teams to projects');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['teams'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const team = await this.teamRepository.findOne({ where: { id: addTeamToProjectDto.teamId } });
+    if (!team) throw new NotFoundException('Team not found');
+
+    if (project.teams.some(t => t.id === team.id)) {
+      throw new BadRequestException('Team is already associated with the project');
+    }
+
+    project.teams.push(team);
+    await this.projectRepository.save(project);
+
+    const notification = this.notificationRepository.create({
+      notificationType: 'TEAM_ADDED_TO_PROJECT',
+      message: `Team ${team.name} was added to project: ${project.name}`,
+      isRead: false,
+      recipient: { id: currentUserId },
+      relatedTaskId: undefined,
+      task: undefined,
+      createdAt: new Date(),
+    });
+    await this.notificationRepository.save(notification);
+  }
+
+  // New method to remove a team from a project
+  async removeTeamFromProject(projectId: number, teamId: number, currentUserId: number): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can remove teams from projects');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['teams'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const team = project.teams.find(t => t.id === teamId);
+    if (!team) {
+      throw new BadRequestException('Team not associated with project');
+    }
+
+    project.teams = project.teams.filter(t => t.id !== teamId);
+    await this.projectRepository.save(project);
+
+    const notification = this.notificationRepository.create({
+      notificationType: 'TEAM_REMOVED_FROM_PROJECT',
+      message: `Team ${team.name} was removed from project: ${project.name}`,
+      isRead: false,
+      recipient: { id: currentUserId },
+      relatedTaskId: undefined,
+      task: undefined,
+      createdAt: new Date(),
+    });
+    await this.notificationRepository.save(notification);
+  }
+
+  // New method to get all teams for a project
+  async getProjectTeams(projectId: number, currentUserId: number): Promise<Team[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['role'],
+    });
+    if (!user || user.role.name !== 'Manager') {
+      throw new ForbiddenException('Only managers can view project teams');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['teams', 'teams.members'],
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    return project.teams;
+  }
+
+}
+

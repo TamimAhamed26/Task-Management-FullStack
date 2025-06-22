@@ -29,10 +29,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { NotificationDto } from './dto/notification.dto';
 import { CreateTimeLogDto, TimeLogDto } from './dto/time-log.dto';
 import { SearchTaskDto } from './dto/search-task.dto';
-import { ManagerOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto } from './dto/ManagerReporting.dto';
+import { ManagerOverviewDto, ManagerTeamOverviewDto, OverdueTaskDto, ProjectDto, TaskPrioritySummaryDto } from './dto/ManagerReporting.dto';
 import { CreateTaskDto } from './dto/createtaskdto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { ProgressReportDto } from 'src/progress/dto/ProgressReportDto';
+import { Team } from 'src/entities/team.entity';
+import { AddTeamMemberDto, AddTeamToProjectDto } from './dto/ProjectTeam.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'))
@@ -101,24 +103,31 @@ export class TaskController {
     await this.taskService.markTaskAsCompleted(id, userId);
     return { message: 'Task marked as pending approval or completed successfully.' };
   }
-  @Delete(':id')
+ @Patch(':id/reject')
   @Roles('MANAGER')
   async rejectTask(
     @Param('id', ParseIntPipe) id: number,
     @GetUser('id') userId: number,
   ): Promise<{ message: string }> {
     await this.taskService.rejectTask(id, userId);
-    return { message: 'COMPLETED or PENDING_APPROVAL task deleted successfully.' };
+    return { message: 'Task status changed to REJECTED successfully.' };
   }
 
-
+  @Delete(':id/delete') 
+  async deleteTask( 
+    @Param('id', ParseIntPipe) id: number,
+    @GetUser('id') userId: number,
+  ): Promise<{ message: string }> {
+    await this.taskService.deleteTaskPermanently(id, userId);
+    return { message: 'Task permanently deleted successfully.' };
+  }
 @Post(':id/comments')
   @Roles('MANAGER', 'COLLABORATOR')
   async createTaskComment(
     @Param('id', ParseIntPipe) id: number,
     @GetUser('id') userId: number,
     @Body('content') content: string,
-    @Body('parentCommentId') parentCommentId?: string, 
+    @Body('parentCommentId') parentCommentId?: string,
   ): Promise<TaskCommentDto> {
     if (!content?.trim()) {
       throw new BadRequestException('Comment content cannot be empty.');
@@ -136,7 +145,7 @@ export class TaskController {
     return this.taskService.createTaskComment(id, userId, content, parsedParentCommentId);
   }
 
-  @Get(':id/comments')
+ @Get(':id/comments')
   @Roles('MANAGER', 'COLLABORATOR')
   async getTaskComments(@Param('id', ParseIntPipe) id: number): Promise<TaskCommentDto[]> {
     return this.taskService.getTaskComments(id);
@@ -269,41 +278,108 @@ async getRecentTasks(
 @Roles('MANAGER')
 async getTaskPrioritySummary(
   @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+  @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number, // NEW
 ): Promise<TaskPrioritySummaryDto[]> {
-  return this.taskService.getTaskPrioritySummary(projectId);
+  return this.taskService.getTaskPrioritySummary(projectId, teamId);
 }
+
+
   @Get('projects/:id/tasks')
   @Roles('MANAGER', 'COLLABORATOR')
   async getProjectTasks(
     @Param('id', ParseIntPipe) projectId: number,
     @GetUser('id') userId: number,
-   @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-@Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+    @Query('assignedToUsername') assignedToUsername?: string,
   ): Promise<{ data: TaskDto[]; total: number; page: number; limit: number }> {
-    return this.taskService.getProjectTasks(projectId, userId, page, limit);
+    return this.taskService.getProjectTasks(
+      projectId,
+      userId,
+      page,
+      limit,
+      keyword,
+      status,
+      priority,
+      assignedToUsername,
+    );
   }
 
-  @Post('projects/:id/team/add')
+@Post('projects/:id/team/add')
   @Roles('MANAGER')
   async addTeamMember(
     @Param('id', ParseIntPipe) projectId: number,
-    @Body('userId', ParseIntPipe) memberId: number,
+    @Body(ValidationPipe) addTeamMemberDto: AddTeamMemberDto,
     @GetUser('id') currentUserId: number,
   ): Promise<void> {
-    await this.taskService.addTeamMember(projectId, currentUserId, memberId);
+    await this.taskService.addTeamMember(projectId, currentUserId, addTeamMemberDto);
   }
 
   @Post('projects/:id/team/remove')
   @Roles('MANAGER')
   async removeTeamMember(
     @Param('id', ParseIntPipe) projectId: number,
-    @Body('userId', ParseIntPipe) memberId: number,
+    @Body(ValidationPipe) addTeamMemberDto: AddTeamMemberDto,
     @GetUser('id') currentUserId: number,
   ): Promise<void> {
-    await this.taskService.removeTeamMember(projectId, currentUserId, memberId);
+    await this.taskService.removeTeamMember(projectId, currentUserId, addTeamMemberDto);
   }
 
+@Get('pending-approval') 
+async getPendingApprovalTasks(
+  @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+  @Query('projectName') projectName?: string,
+): Promise<TaskDto[]> {
+  if (projectId && projectName) {
+    throw new BadRequestException('Provide either projectId or projectName, not both');
+  }
+  return this.taskService.getPendingApprovalTasks(projectId, projectName); 
+}
+@Get('manager/team-overview')
+@Roles('MANAGER')
+async getManagerTeamOverview(
+  @GetUser('id') userId: number,
+  @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, // NEW
+): Promise<ManagerTeamOverviewDto> {
+  return this.taskService.getManagerTeamOverview(userId, projectId);
+}
+  @Get('nearing-deadline')
+  @Roles('MANAGER')
+  async getTasksNearingDeadline(): Promise<TaskDto[]> {
+    return this.taskService.getTasksNearingDeadline();
+  }
 
+@Post('projects/:id/teams')
+  @Roles('MANAGER')
+  async addTeamToProject(
+    @Param('id', ParseIntPipe) projectId: number,
+    @Body(ValidationPipe) addTeamToProjectDto: AddTeamToProjectDto,
+    @GetUser('id') currentUserId: number,
+  ): Promise<void> {
+    await this.taskService.addTeamToProject(projectId, currentUserId, addTeamToProjectDto);
+  }
+
+  @Post('projects/:id/teams/:teamId/remove')
+  @Roles('MANAGER')
+  async removeTeamFromProject(
+    @Param('id', ParseIntPipe) projectId: number,
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @GetUser('id') currentUserId: number,
+  ): Promise<void> {
+    await this.taskService.removeTeamFromProject(projectId, teamId, currentUserId);
+  }
+
+  @Get('projects/:id/teams')
+  @Roles('MANAGER')
+  async getProjectTeams(
+    @Param('id', ParseIntPipe) projectId: number,
+    @GetUser('id') currentUserId: number,
+  ): Promise<Team[]> {
+    return this.taskService.getProjectTeams(projectId, currentUserId);
+  }
 
 
 }

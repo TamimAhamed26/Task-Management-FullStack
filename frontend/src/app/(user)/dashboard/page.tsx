@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { Bar, Pie } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,16 +11,14 @@ import {
   Legend,
   ArcElement
 } from 'chart.js';
+import { Bar, Pie } from 'react-chartjs-2';
 import TopBar from '@/components/TopBar';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { Responsive, WidthProvider } from 'react-grid-layout';
-import '/node_modules/react-grid-layout/css/styles.css';
-import '/node_modules/react-resizable/css/styles.css';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import Link from 'next/link';
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 interface TaskDto {
   id: number;
   title: string;
@@ -85,7 +82,7 @@ interface CreateTaskDto {
   title: string;
   description?: string;
   deadline?: string;
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' ;
   assignedToId?: number;
   projectId: number;
 }
@@ -101,11 +98,43 @@ interface PrioritySummaryDto {
   count: number;
 }
 
+interface ManagerTeamOverviewDto {
+  totalTasksForTeams?: number; 
+  overdueTasksForTeams?: number; 
+  teamStatusSummaries?: TeamStatusSummary[];
+  teamTotalHoursLogged?: TeamTotalHoursLogged[]; 
+  teamCompletionRates?: TeamCompletionRate[];
+  message?: string; 
+}
+
+interface TeamStatusSummary {
+  teamId: number;
+  teamName: string;
+  status: string;
+  count: number;
+}
+
+interface TeamTotalHoursLogged {
+  teamId: number;
+  teamName: string;
+  totalHours: number;
+}
+
+interface TeamCompletionRate {
+  teamId: number;
+  teamName: string;
+  completionRate: number;
+  completedTasks: number;
+  totalTasks: number;
+}
+
 export default function DashboardPage() {
   const { user, tokenStatus, loading, feedback } = useAuthGuard();
   const [overview, setOverview] = useState<ManagerOverviewDto | null>(null);
   const [overdueTasks, setOverdueTasks] = useState<OverdueTaskDto[]>([]);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [reportFilterProjectId, setReportFilterProjectId] = useState<number | undefined>(undefined);
+  const [reportFilterTeamId, setReportFilterTeamId] = useState<number | undefined>(undefined);
   const [currentReport, setCurrentReport] = useState<ProgressReportDto | null>(null);
   const [workloadDistribution, setWorkloadDistribution] = useState<WorkloadDistributionDto[]>([]);
   const [totalHoursPerUser, setTotalHoursPerUser] = useState<TotalHoursPerUserDto[]>([]);
@@ -116,6 +145,13 @@ export default function DashboardPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [collaborators, setCollaborators] = useState<{ id: number; username: string }[]>([]);
+  const [tasksNearingDeadline, setTasksNearingDeadline] = useState<TaskDto[]>([]);
+  const [managerTeamOverview, setManagerTeamOverview] = useState<ManagerTeamOverviewDto | null>(null);
+  const [workloadFilterProjectId, setWorkloadFilterProjectId] = useState<number | undefined>(undefined); 
+  const [workloadFilterTeamId, setWorkloadFilterTeamId] = useState<number | undefined>(undefined); 
+  const [hoursFilterProjectId, setHoursFilterProjectId] = useState<number | undefined>(undefined); 
+  const [hoursFilterTeamId, setHoursFilterTeamId] = useState<number | undefined>(undefined); 
+  const [priorityFilterTeamId, setPriorityFilterTeamId] = useState<number | undefined>(undefined);
 
   const [newTask, setNewTask] = useState<CreateTaskDto>({
     title: '',
@@ -126,31 +162,29 @@ export default function DashboardPage() {
     projectId: 0,
   });
   const [createTaskError, setCreateTaskError] = useState<string | null>(null);
-  const [createTaskSuccess, setCreateTaskSuccess] = useState<string | null>(null);
+  const [createTaskSuccess, setCreateTaskSuccess] = useState<string | null>(null); 
   const [recentTasksProjectId, setRecentTasksProjectId] = useState<number | undefined>(undefined);
-  const [pendingTasksFilterProjectId, setPendingTasksFilterProjectId] = useState<number | undefined>(undefined);
-  const [pendingTasksFilterProjectName, setPendingTasksFilterProjectName] = useState<string | undefined>(undefined);
-  const [workloadFilterUsername, setWorkloadFilterUsername] = useState<string | undefined>(undefined);
-  const [workloadFilterUserId, setWorkloadFilterUserId] = useState<number | undefined>(undefined);
+  const [pendingTasksFilterProjectId, setPendingTasksFilterProjectId] = useState<number | undefined>(undefined); 
+  const [pendingTasksFilterProjectName, setPendingTasksFilterProjectName] = useState<string | undefined>(undefined); 
+  const [workloadFilterUsername, setWorkloadFilterUsername] = useState<string | undefined>(undefined); 
+  const [workloadFilterUserId, setWorkloadFilterUserId] = useState<number | undefined>(undefined); 
   const [workloadDateRange, setWorkloadDateRange] = useState<{ startDate: Date | null; endDate: Date | null }>({ startDate: null, endDate: null });
   const [hoursDateRange, setHoursDateRange] = useState<{ startDate: Date | null; endDate: Date | null }>({ startDate: null, endDate: null });
   const [hoursFilterUsername, setHoursFilterUsername] = useState<string | undefined>(undefined);
   const [hoursFilterUserId, setHoursFilterUserId] = useState<number | undefined>(undefined);
   const [prioritySummary, setPrioritySummary] = useState<PrioritySummaryDto[]>([]);
   const [priorityFilterProjectId, setPriorityFilterProjectId] = useState<number | undefined>(undefined);
-  const [reportDatePreset, setReportDatePreset] = useState<string>('last7');
+  const [reportDatePreset, setReportDatePreset] = useState<string>('allTime');
   const [reportStartDate, setReportStartDate] = useState<Date | null>(new Date());
   const [overdueTasksTotal, setOverdueTasksTotal] = useState<number>(0);
   const [reportEndDate, setReportEndDate] = useState<Date | null>(new Date());
   const [customReportRange, setCustomReportRange] = useState<[Date | null, Date | null]>([null, null]);
 
-  // New state for feedback modal
   const [modal, setModal] = useState<{
     isOpen: boolean;
     type: 'success' | 'error';
     message: string;
   }>({ isOpen: false, type: 'success', message: '' });
-
   useEffect(() => {
     console.log("User object in DashboardPage:", user);
     console.log("User role type:", typeof user?.role);
@@ -158,27 +192,28 @@ export default function DashboardPage() {
       console.log("User role name:", user.role.name);
     }
   }, [user]);
+  useEffect(() => {
+    const fetchCollaborators = async () => {
+      try {
+        const response = await axios.get('http://localhost:3001/users/collaborators', { withCredentials: true });
+        setCollaborators(response.data);
+      } catch (err) {
+        console.error('Failed to load collaborators list:', err);
+      }
+    };
 
-  // Add this new useEffect hook
-useEffect(() => {
-  const fetchCollaborators = async () => {
-    try {
-      const response = await axios.get('http://localhost:3001/users/collaborators', { withCredentials: true });
-      setCollaborators(response.data);
-    } catch (err) {
-      console.error('Failed to load collaborators list:', err);
+    if (!loading && user && user.role?.name?.toUpperCase() === 'MANAGER') {
+      fetchCollaborators();
     }
-  };
-
-  if (!loading && user && user.role?.name?.toUpperCase() === 'MANAGER') {
-    fetchCollaborators();
-  }
-}, [loading, user]); // Runs only when user auth state is confirmed
+  }, [loading, user]);
 
   const getPresetDates = (preset: string) => {
     const end = new Date();
     const start = new Date();
     switch (preset) {
+      case 'allTime':
+        start.setFullYear(2025, 3, 1); 
+        break;
       case 'last7':
         start.setDate(end.getDate() - 7);
         break;
@@ -202,7 +237,6 @@ useEffect(() => {
     }
     return { start, end };
   };
-
   useEffect(() => {
     if (reportDatePreset !== 'custom') {
       const { start, end } = getPresetDates(reportDatePreset);
@@ -214,7 +248,6 @@ useEffect(() => {
       setReportEndDate(end);
     }
   }, [reportDatePreset, customReportRange]);
-
   const fetchData = useCallback(async () => {
     if (!reportStartDate || !reportEndDate) {
       return;
@@ -232,16 +265,12 @@ useEffect(() => {
         fetchErrors.push(errorMsg);
       }
     };
-fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
-  setOverdueTasks(response.data || []);
-  setOverdueTasksTotal(response.total || 0);
-}, 'Failed to load overdue tasks');
 
-  const recentTasksUrl = recentTasksProjectId
+    const recentTasksUrl = recentTasksProjectId
       ? `http://localhost:3001/tasks/recent?projectId=${recentTasksProjectId}`
       : 'http://localhost:3001/tasks/recent';
 
-    let pendingTasksUrl = 'http://localhost:3001/tasks/pending';
+    let pendingTasksUrl = 'http://localhost:3001/tasks/pending-approval';
     if (pendingTasksFilterProjectId) {
       pendingTasksUrl += `?projectId=${pendingTasksFilterProjectId}`;
     } else if (pendingTasksFilterProjectName) {
@@ -256,6 +285,8 @@ fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
       workloadParams.append('startDate', workloadDateRange.startDate.toISOString().split('T')[0]);
       workloadParams.append('endDate', workloadDateRange.endDate.toISOString().split('T')[0]);
     }
+    if (workloadFilterProjectId) workloadParams.append('projectId', workloadFilterProjectId.toString());
+    if (workloadFilterTeamId) workloadParams.append('teamId', workloadFilterTeamId.toString());
     if (workloadParams.toString()) {
       workloadUrl += `?${workloadParams.toString()}`;
     }
@@ -268,6 +299,8 @@ fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
       totalHoursParams.append('startDate', hoursDateRange.startDate.toISOString().split('T')[0]);
       totalHoursParams.append('endDate', hoursDateRange.endDate.toISOString().split('T')[0]);
     }
+    if (hoursFilterProjectId) totalHoursParams.append('projectId', hoursFilterProjectId.toString());
+    if (hoursFilterTeamId) totalHoursParams.append('teamId', hoursFilterTeamId.toString());
     if (totalHoursParams.toString()) {
       totalHoursUrl += `?${totalHoursParams.toString()}`;
     }
@@ -276,28 +309,57 @@ fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
     if (priorityFilterProjectId) {
       prioritySummaryUrl += `?projectId=${priorityFilterProjectId}`;
     }
+    if (priorityFilterTeamId) {
+        prioritySummaryUrl += `${prioritySummaryUrl.includes('?') ? '&' : '?'}teamId=${priorityFilterTeamId}`;
+    }
 
-    const reportUrl = `http://localhost:3001/progress/custom-report?startDate=${reportStartDate.toISOString().split('T')[0]}&endDate=${reportEndDate.toISOString().split('T')[0]}`;
-
+    let reportUrl = `http://localhost:3001/progress/custom-report?startDate=${reportStartDate.toISOString().split('T')[0]}&endDate=${reportEndDate.toISOString().split('T')[0]}`;
+    if (reportFilterProjectId) {
+      reportUrl += `&projectId=${reportFilterProjectId}`;
+    }
+    if (reportFilterTeamId) {
+      reportUrl += `&teamId=${reportFilterTeamId}`;
+    }
+let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate';
+    const overallCompletionParams = new URLSearchParams();
+    // Assuming you want to apply the same date range from the main report filter
+    if (reportStartDate && reportEndDate) {
+      overallCompletionParams.append('startDate', reportStartDate.toISOString().split('T')[0]);
+      overallCompletionParams.append('endDate', reportEndDate.toISOString().split('T')[0]);
+    }
+    if (reportFilterProjectId) {
+      overallCompletionParams.append('projectId', reportFilterProjectId.toString());
+    }
+    if (reportFilterTeamId) {
+      overallCompletionParams.append('teamId', reportFilterTeamId.toString());
+    }
+    if (overallCompletionParams.toString()) {
+      overallCompletionUrl += `?${overallCompletionParams.toString()}`;
+    }
     await Promise.all([
       fetchEndpoint('http://localhost:3001/tasks/overview', setOverview, 'Failed to load task overview'),
-      fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => setOverdueTasks(response.data || []), 'Failed to load overdue tasks'),
+      fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
+        setOverdueTasks(response.data || []);
+        setOverdueTasksTotal(response.total || 0);
+      }, 'Failed to load overdue tasks'),
       fetchEndpoint('http://localhost:3001/tasks/projects', setProjects, 'Failed to load projects'),
       fetchEndpoint(reportUrl, setCurrentReport, 'Failed to load report'),
       fetchEndpoint(workloadUrl, setWorkloadDistribution, 'Failed to load workload distribution'),
       fetchEndpoint(totalHoursUrl, setTotalHoursPerUser, 'Failed to load total hours per user'),
       fetchEndpoint(recentTasksUrl, setRecentTasks, 'Failed to load recent tasks'),
       fetchEndpoint(pendingTasksUrl, setPendingApprovalTasks, 'Failed to load pending tasks (approval requests)'),
-      fetchEndpoint('http://localhost:3001/progress/task-completion-rate', setOverallCompletion, 'Failed to load overall completion rate'),
+      fetchEndpoint(overallCompletionUrl, setOverallCompletion, 'Failed to load overall completion rate'),
       fetchEndpoint(prioritySummaryUrl, setPrioritySummary, 'Failed to load priority summary'),
-      
+      fetchEndpoint('http://localhost:3001/tasks/nearing-deadline', setTasksNearingDeadline, 'Failed to load tasks nearing deadline'),
+      fetchEndpoint('http://localhost:3001/tasks/manager/team-overview', setManagerTeamOverview, 'Failed to load manager team overview'),
     ]);
-
     if (fetchErrors.length > 0) {
       setError(`Some dashboard data could not be loaded: ${fetchErrors.join('; ')}. Please ensure your backend is running and all endpoints are accessible.`);
     }
     setIsLoadingData(false);
   }, [
+    reportFilterProjectId,
+    reportFilterTeamId,
     reportStartDate,
     reportEndDate,
     recentTasksProjectId,
@@ -309,12 +371,15 @@ fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
     hoursFilterUsername,
     hoursFilterUserId,
     hoursDateRange,
-    priorityFilterProjectId
+    priorityFilterProjectId,
+    priorityFilterTeamId,
+    workloadFilterProjectId,
+    workloadFilterTeamId,
+    hoursFilterProjectId,
+    hoursFilterTeamId
   ]);
-
-useEffect(() => {
+  useEffect(() => {
     if (!loading && user && user.role?.name?.toUpperCase() === 'MANAGER') {
-   
       if (workloadDateRange.startDate && !workloadDateRange.endDate) {
         return;
       }
@@ -323,7 +388,7 @@ useEffect(() => {
       }
       fetchData();
     }
-  }, [loading, user, fetchData, workloadDateRange, hoursDateRange]); 
+  }, [loading, user, fetchData, workloadDateRange, hoursDateRange]);
   const priorityChartData = {
     labels: prioritySummary.map(p => p.priority),
     datasets: [{
@@ -341,7 +406,6 @@ useEffect(() => {
       borderWidth: 1,
     }],
   };
-
   const priorityChartOptions = {
     responsive: true,
     plugins: {
@@ -369,7 +433,6 @@ useEffect(() => {
       },
     },
   };
-
   const workloadChartData = {
     labels: workloadDistribution.map(d => d.username),
     datasets: [
@@ -379,9 +442,10 @@ useEffect(() => {
         backgroundColor: 'rgba(251, 191, 36, 0.7)',
       },
       {
-        label: 'Approved',
-        data: workloadDistribution.map(d => d.statusBreakdown.APPROVED || 0),
+        label: 'Pending_Approval',
+        data: workloadDistribution.map(d => d.statusBreakdown.PENDING_APPROVAL || 0),
         backgroundColor: 'rgba(59, 130, 246, 0.7)',
+
       },
       {
         label: 'Completed',
@@ -395,7 +459,6 @@ useEffect(() => {
       },
     ],
   };
-
   const workloadChartOptions = {
     responsive: true,
     plugins: {
@@ -407,7 +470,6 @@ useEffect(() => {
       y: { stacked: true, beginAtZero: true },
     },
   };
-
   const totalHoursChartData = {
     labels: totalHoursPerUser.map(u => u.username),
     datasets: [
@@ -420,7 +482,6 @@ useEffect(() => {
       },
     ],
   };
-
   const totalHoursChartOptions = {
     indexAxis: "y" as const,
     responsive: true,
@@ -432,48 +493,53 @@ useEffect(() => {
       x: { beginAtZero: true },
     },
   };
+  const handleDownloadPdf = async () => {
+    if (!reportStartDate || !reportEndDate) {
+      setModal({
+        isOpen: true,
+        type: 'error',
+        message: 'Please select a valid date range.',
+      });
+      return;
+    }
 
- const handleDownloadPdf = async () => {
-  if (!reportStartDate || !reportEndDate) {
-    setModal({
-      isOpen: true,
-      type: 'error',
-      message: 'Please select a valid date range.',
-    });
-    return;
-  }
+    const startDateStr = reportStartDate.toISOString().split('T')[0];
+    const endDateStr = reportEndDate.toISOString().split('T')[0];
+    let downloadUrl = `http://localhost:3001/progress/download-custom-report-pdf?startDate=${startDateStr}&endDate=${endDateStr}`;
+    if (reportFilterProjectId) {
+      downloadUrl += `&projectId=${reportFilterProjectId}`;
+    }
+    if (reportFilterTeamId) {
+      downloadUrl += `&teamId=${reportFilterTeamId}`;
+    }
 
-  const startDateStr = reportStartDate.toISOString().split('T')[0];
-  const endDateStr = reportEndDate.toISOString().split('T')[0];
-  const downloadUrl = `http://localhost:3001/progress/download-custom-report-pdf?startDate=${startDateStr}&endDate=${endDateStr}`;
-
-  try {
-    const response = await axios.get(downloadUrl, {
-      withCredentials: true,
-      responseType: 'blob',
-    });
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `report_${startDateStr}_to_${endDateStr}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url); // Clean up the URL object
-    setModal({
-      isOpen: true,
-      type: 'success',
-      message: 'PDF report generated and download initiated.',
-    });
-  } catch (err: any) {
-    console.error('Failed to generate PDF:', err);
-    setModal({
-      isOpen: true,
-      type: 'error',
-      message: err.response?.data?.message || 'Failed to generate report PDF. Please try again.',
-    });
-  }
-};
+    try {
+      const response = await axios.get(downloadUrl, {
+        withCredentials: true,
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `report_${startDateStr}_to_${endDateStr}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setModal({
+        isOpen: true,
+        type: 'success',
+        message: 'PDF report generated and download initiated.',
+      });
+    } catch (err: any) {
+      console.error('Failed to generate PDF:', err);
+      setModal({
+        isOpen: true,
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to generate report PDF. Please try again.',
+      });
+    }
+  };
 
   const handleNewTaskChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -487,7 +553,6 @@ useEffect(() => {
     e.preventDefault();
     setCreateTaskError(null);
     setCreateTaskSuccess(null);
-
     if (!newTask.title || !newTask.projectId) {
       setCreateTaskError('Task title and Project are required.');
       return;
@@ -513,7 +578,11 @@ useEffect(() => {
       });
     } catch (err: any) {
       console.error('Failed to create task:', err);
-      setCreateTaskError(err.response?.data?.message || 'Failed to create task. Please try again.');
+      setModal({
+        isOpen: true,
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to create task. Please try again.',
+      });
     }
   };
 
@@ -551,14 +620,14 @@ useEffect(() => {
         <div className="alert alert-error shadow-2xl w-full max-w-lg rounded-xl">
           <div className="flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current flex-shrink-0 h-8 w-8 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /> 
             </svg>
             <span className="ml-2 text-lg font-bold text-red-800 dark:text-red-100">Access Denied</span>
           </div>
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100 mt-6">Manager Dashboard Access Only</h2>
         <p className="text-gray-600 dark:text-gray-300 mt-2">This dashboard is exclusively for users with manager privileges.</p>
-        <div className="mt-8 flex flex-col sm:flex-row gap-4">
+        <div className="mt-8 flex flex-col sm:flex-row gap-4"> 
           <a href="/profile" className="btn btn-primary btn-lg rounded-full shadow-lg hover:shadow-xl transition-all duration-300">
             View Profile
           </a>
@@ -568,8 +637,8 @@ useEffect(() => {
               await fetch('http://localhost:3001/auth/logout', {
                 method: 'POST',
                 credentials: 'include',
-              });
-              window.location.href = '/login';
+              }); 
+              window.location.href = '/login'; 
             }}
           >
             Logout
@@ -616,7 +685,6 @@ useEffect(() => {
       easing: "easeOutQuart" as const,
     },
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-700 p-6 md:p-10 font-sans antialiased">
       <TopBar />
@@ -624,7 +692,7 @@ useEffect(() => {
       {(feedback || tokenStatus === 'refreshed') && (
         <div role="alert" className={`alert alert-success mb-6 rounded-xl shadow-md animate-fade-in ${feedback ? '' : 'animate-bounce'}`}>
           <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /> 
           </svg>
           <span className="text-green-800 dark:text-green-100 font-medium">{feedback || 'Your session was automatically refreshed.'}</span>
         </div>
@@ -633,13 +701,13 @@ useEffect(() => {
       {error && (
         <div role="alert" className="alert alert-error mb-6 rounded-xl shadow-md animate-fade-in">
           <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /> 
           </svg>
           <span className="text-red-800 dark:text-red-100 font-medium">Error: {error}</span>
         </div>
       )}
 
-      {isLoadingData ? (
+      {isLoadingData ? ( 
         <div className="flex flex-col items-center justify-center p-10 bg-white dark:bg-gray-800 rounded-2xl shadow-xl min-h-[400px]">
           <span className="loading loading-dots loading-lg text-indigo-600 dark:text-indigo-400"></span>
           <p className="mt-6 text-gray-600 dark:text-gray-100 text-lg font-medium">Fetching dashboard insights...</p>
@@ -647,19 +715,25 @@ useEffect(() => {
       ) : (
         <div className="space-y-10">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
             <div className="card bg-gradient-to-br from-indigo-600 to-indigo-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
               <div className="card-body p-6">
                 <h2 className="card-title text-2xl font-extrabold">Task Overview</h2>
-                <p className="text-xl">Total Tasks: <span className="font-extrabold text-3xl">{overview?.totalTasks || 0}</span></p>
+                <p className="text-xl">Total Tasks: <span className="font-extrabold text-3xl">{overview?.totalTasks || 0}</span></p> 
                 <div className="flex flex-col gap-3 mt-4">
-                  {overview?.statusSummary.map(s => (
-                    <div key={s.status} className="flex justify-between items-center bg-white/10 backdrop-blur-sm px-4 py-2 rounded-lg">
-                      <span className="font-medium">{s.status}</span>
-                      <span className="font-bold text-lg">{s.count}</span>
-                    </div>
-                  ))}
+                  {overview?.statusSummary
+                    .filter(s => s.status !== 'APPROVED')
+                    .map(s => (
+                      <div
+                        key={s.status}
+                        className="flex justify-between items-center bg-white/10 backdrop-blur-sm px-4 py-2 rounded-lg"
+                      >
+                        <span className="font-medium">{s.status}</span>
+                        <span className="font-bold text-lg">{s.count}</span>
+                      </div>
+                    ))}
                 </div>
-                <div className="card-actions justify-end mt-6">
+                <div className="card-actions justify-end mt-6"> 
                   <a href="/tasks/search" className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-indigo-600 dark:hover:text-indigo-600 rounded-full">
                     Search Tasks
                   </a>
@@ -669,102 +743,58 @@ useEffect(() => {
 
             <div className="card bg-gradient-to-br from-emerald-600 to-emerald-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 mb-6">
               <div className="card-body p-6">
-                <h2 className="card-title text-2xl font-extrabold">Overall Progress</h2>
+                <h2 className="card-title text-2xl font-extrabold">Overall Progress</h2> 
                 <div className="flex items-center justify-center my-6">
                   <div
                     className="radial-progress text-white dark:text-gray-100"
                     style={{ "--value": overallCompletion?.completionRate || 0, "--size": "10rem", "--thickness": "1.2rem" } as React.CSSProperties}
                     role="progressbar"
                   >
-                    <span className="text-4xl">{overallCompletion?.completionRate || 0}%</span>
+                    <span className="text-4xl">{overallCompletion?.completionRate || 0}%</span> 
                   </div>
                 </div>
                 <p className="text-center text-lg">
-                  Completed: <span className="font-extrabold">{overallCompletion?.completedTasks || 0}</span> /{' '}
-                  <span className="font-extrabold">{overallCompletion?.totalTasks || 0}</span> Tasks
+                  Completed: <span className="font-extrabold">{overallCompletion?.completedTasks || 0}</span> /{' '} 
+                  <span className="font-extrabold">{overallCompletion?.totalTasks || 0}</span> Tasks 
                 </p>
                 <h3 className="text-xl font-bold mt-4">Current Report</h3>
-                <p className="text-lg">Completed: <span className="font-extrabold">{currentReport?.completedTasks || 0}</span></p>
-                <p className="text-lg">Pending: <span className="font-extrabold">{currentReport?.pendingTasks || 0}</span></p>
-                
+                <p className="text-lg">Completed: <span className="font-extrabold">{currentReport?.completedTasks || 0}</span></p> 
+                <p className="text-lg">Pending: <span className="font-extrabold">{currentReport?.pendingTasks || 0}</span></p> 
+
                 <div className="flex flex-col gap-4 mt-4">
                   <select
-    className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
+                    className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
                     value={reportDatePreset}
-                    onChange={(e) => setReportDatePreset(e.target.value)}
+                    onChange={(e) => setReportDatePreset(e.target.value)} 
                   >
+                    <option value="allTime">All Time</option>
                     <option value="last7">Last 7 Days</option>
                     <option value="last30">Last 30 Days</option>
                     <option value="thisMonth">This Month</option>
-                    <option value="lastMonth">Last Month</option>
+                    <option value="lastMonth">Last Month</option> 
                     <option value="thisQuarter">This Quarter</option>
                     <option value="custom">Custom Range</option>
                   </select>
-{reportDatePreset === 'custom' && (
-  <DatePicker
-    selectsRange={true}
-    startDate={customReportRange[0]}
-    endDate={customReportRange[1]}
-    onChange={(update) => setCustomReportRange(update)}
-    isClearable={true}
-    maxDate={new Date()}
-    popperClassName="z-index-fix-for-datepicker" // Added custom class
-    className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
-    placeholderText="Select a custom date range"
-  />
-)}
-                </div>
-
-                <div className="card-actions justify-end mt-6">
-                  <button
-                    onClick={handleDownloadPdf}
-                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-emerald-600 dark:hover:text-emerald-600 rounded-full"
-                  >
-                    Download PDF
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="card bg-gradient-to-br from-rose-600 to-rose-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
-              <div className="card-body p-6">
-                <h2 className="card-title text-2xl font-extrabold">Overdue Tasks</h2>
-                {overdueTasks.length === 0 ? (
-                  <p className="text-lg italic mt-4">No overdue tasks. Keep it up!</p>
-                ) : (
-                  <ul className="list-disc list-inside mt-4 space-y-3">
-                    {overdueTasks.slice(0, 5).map(task => (
-                      <li key={task.id} className="text-lg">
-                        <span className="font-semibold">{task.title}</span> (Assigned: {task.assigneeUsername}, Due:{' '}
-                        {new Date(task.dueDate).toLocaleDateString()})
-                      </li>
-                    ))}
-                   {overdueTasksTotal > 5 && (
-  <li className="text-lg italic">And {overdueTasksTotal - 5} more...</li>
-)}
-                  </ul>
-                )}
-                <div className="card-actions justify-end mt-6">
-<Link
-  href="/overdue"
-  className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-rose-600 dark:hover:text-rose-600 rounded-full"
->
-  View Overdue
-</Link>               </div>
-              </div>
-            </div>
-
-            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
-              <div className="card-body p-6">
-                <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100">Recent Tasks</h2>
-                <div className="form-control mb-4">
+                  {reportDatePreset === 'custom' && (
+                    <DatePicker
+                      selectsRange={true}
+                      startDate={customReportRange[0]}
+                      endDate={customReportRange[1]}
+                      onChange={(update) => setCustomReportRange(update)} 
+                      isClearable={true}
+                      maxDate={new Date()}
+                      popperClassName="z-index-fix-for-datepicker"
+                      className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100" 
+                      placeholderText="Select a custom date range"
+                    />
+                  )}
                   <label className="label">
-                    <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
+                    <span className="label-text text-white dark:text-gray-100">Filter by Project</span>
                   </label>
                   <select
-                    className="select select-bordered w-full rounded-lg"
-                    value={recentTasksProjectId || ''}
-                    onChange={(e) => setRecentTasksProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                    className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
+                    value={reportFilterProjectId || ''}
+                    onChange={(e) => setReportFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
                   >
                     <option value="">All Projects</option>
                     {projects.map(project => (
@@ -773,111 +803,273 @@ useEffect(() => {
                       </option>
                     ))}
                   </select>
+                  <label className="label">
+                    <span className="label-text text-white dark:text-gray-100">Filter by Team</span>
+                  </label>
+                  <select
+                    className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
+                    value={reportFilterTeamId || ''}
+                    onChange={(e) => setReportFilterTeamId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">All Teams</option>
+                    {managerTeamOverview?.teamStatusSummaries && Array.from(new Set(managerTeamOverview.teamStatusSummaries.map(s => JSON.stringify({ id: s.teamId, name: s.teamName }))))
+                      .map(teamStr => {
+                        const team = JSON.parse(teamStr);
+                        return <option key={team.id} value={team.id}>{team.name}</option>;
+                      })
+                    }
+                  </select>
                 </div>
-                {recentTasks.length === 0 ? (
+
+                <div className="card-actions justify-end mt-6"> 
+                  <button
+                    onClick={handleDownloadPdf}
+                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-emerald-600 dark:hover:text-emerald-600 rounded-full"
+                  >
+                    Download PDF 
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="card bg-gradient-to-br from-rose-600 to-rose-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
+              <div className="card-body p-6">
+                <h2 className="card-title text-2xl font-extrabold">Overdue Tasks</h2>
+                {overdueTasks.length === 0 ? ( 
+                  <p className="text-lg italic mt-4">No overdue tasks. Keep it up!</p>
+                ) : (
+                  <ul className="list-disc list-inside mt-4 space-y-3">
+                    {overdueTasks.slice(0, 5).map(task => (
+                      <li key={task.id} className="text-lg"> 
+                        <span className="font-semibold">{task.title}</span> (Assigned: {task.assigneeUsername}, Due:{' '}
+                        {new Date(task.dueDate).toLocaleDateString()})
+                      </li>
+                    ))}
+                    {overdueTasksTotal > 5 && (
+                      <li className="text-lg italic">And {overdueTasksTotal - 5} more...</li> 
+                    )}
+                  </ul>
+                )} 
+                <div className="card-actions justify-end mt-6">
+                  <Link
+                    href="/overdue"
+                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-rose-600 dark:hover:text-rose-600 rounded-full"
+                  >
+                    View Overdue
+                  </Link>
+                </div>
+              </div>
+            </div> 
+
+            <div className="card bg-gradient-to-br from-purple-600 to-purple-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 h-full">
+              <div className="card-body p-6">
+                <h2 className="card-title text-2xl font-extrabold">Tasks Nearing Deadline</h2>
+                {tasksNearingDeadline.length === 0 ? ( 
+                  <p className="text-lg italic mt-4">No tasks nearing their deadline. Great work!</p>
+                ) : (
+                  <ul className="list-disc list-inside mt-4 space-y-3">
+                    {tasksNearingDeadline.slice(0, 5).map(task => (
+                      <li key={task.id} className="text-lg"> 
+                        <span className="font-semibold">{task.title}</span> (Assignee: {task.assignedToUsername || 'N/A'}, Due:{' '}
+                        {new Date(task.dueDate).toLocaleDateString()}{' '}
+                        - <span className="font-bold">{Math.ceil((new Date(task.dueDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))}</span> days left) 
+                      </li>
+                    ))}
+                    {tasksNearingDeadline.length > 5 && (
+                      <li className="text-lg italic">And {tasksNearingDeadline.length - 5} more...</li> 
+                    )}
+                  </ul>
+                )}
+                <div className="card-actions justify-end mt-6">
+                  <Link
+                    href="/tasks/nearing-deadline"
+                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-purple-600 dark:hover:text-purple-600 rounded-full"
+                  >
+                    View All 
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
+              <div className="card-body p-6">
+                <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100">Recent Tasks</h2> 
+                <div className="form-control mb-4">
+                  <label className="label">
+                    <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
+                  </label>
+                  <select
+                    className="select select-bordered w-full rounded-lg"
+                    value={recentTasksProjectId || ''} 
+                    onChange={(e) => setRecentTasksProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">All Projects</option>
+                    {projects.map(project => (
+                      <option key={project.id} value={project.id}> 
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div> 
+                {recentTasks.length === 0 ? ( 
                   <p className="text-lg italic text-gray-500 dark:text-gray-400 mt-4">No recent tasks.</p>
                 ) : (
                   <ul className="list-disc list-inside mt-4 space-y-3 text-gray-700 dark:text-gray-100">
                     {recentTasks.slice(0, 5).map(task => (
-                      <li key={task.id} className="text-lg">
+                      <li key={task.id} className="text-lg"> 
                         <span className="font-semibold">{task.title}</span> (Status: {task.status}, Assigned:{' '}
                         {task.assignedToUsername || 'N/A'})
                         <span className="text-sm block text-gray-400 dark:text-gray-500">Updated: {new Date(task.updatedAt).toLocaleDateString()}</span>
-                      </li>
+                      </li> 
                     ))}
                     {recentTasks.length > 5 && (
-                      <li className="text-lg italic">And {recentTasks.length - 5} more...</li>
+                      <li className="text-lg italic">And {recentTasks.length - 5} more...</li> 
                     )}
                   </ul>
                 )}
                 <div className="card-actions justify-end mt-6">
                   <a href="/tasks/recent" className="btn btn-primary rounded-full shadow-md hover:shadow-lg">
-                    View Recent Tasks
+                    View Recent Tasks 
                   </a>
                 </div>
               </div>
             </div>
 
-         <div className="card bg-gradient-to-br from-amber-600 to-amber-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
-  <div className="card-body p-6">
-    <h2 className="card-title text-2xl font-extrabold">Approval Requests</h2>
-    <div className="form-control mb-4">
-      <label className="label">
-        <span className="label-text text-white dark:text-gray-100">Filter by Project</span>
-      </label>
-      <select
-        className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
-        value={pendingTasksFilterProjectId || ''}
-        onChange={(e) => setPendingTasksFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-      >
-        <option value="">All Projects</option>
-        {projects.map(project => (
-          <option key={project.id} value={project.id}>
-        {project.name}
-          </option>
-        ))}
-      </select>
-    </div>
-    {pendingApprovalTasks.length === 0 ? (
-      <p className="text-lg italic mt-4">No tasks pending approval.</p>
-    ) : (
-      <ul className="list-disc list-inside mt-4 space-y-3">
-        {pendingApprovalTasks.slice(0, 5).map(task => (
-          <li key={task.id} className="text-lg flex justify-between items-center">
-            <div>
-              <span className="font-semibold">{task.title}</span> (Assigned: {task.assignedToUsername || 'N/A'})
-              <span className="block text-sm text-gray-200 dark:text-gray-400">Project: {task.projectName || 'N/A'}</span>
-            </div>
-            <button
-              onClick={() => handleApproveTask(task.id)}
-              className="btn btn-sm btn-success text-white rounded-full ml-4"
-            >
-              Approve
-            </button>
-          </li>
-        ))}
-        {pendingApprovalTasks.length > 5 && (
-          <li className="text-lg italic">And {pendingApprovalTasks.length - 5} more...</li>
-        )}
-      </ul>
-    )}
-    <div className="card-actions justify-end mt-6">
-      <a
-        href="/tasks/pending"
-        className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-amber-600 dark:hover:text-amber-600 rounded-full"
-      >
-        View Pending
-      </a>
-    </div>
-  </div>
-</div>
-            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 col-span-1 md:col-span-2 lg:col-span-3">
+            <div className="card bg-gradient-to-br from-amber-600 to-amber-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1"> 
               <div className="card-body p-6">
-                <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100">Your Projects</h2>
-                {projects.length === 0 ? (
+                <h2 className="card-title text-2xl font-extrabold">Approval Requests</h2>
+                <div className="form-control mb-4">
+                  <label className="label">
+                    <span className="label-text text-white dark:text-gray-100">Filter by Project</span> 
+                  </label>
+                  <select
+                    className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
+                    value={pendingTasksFilterProjectId || ''} 
+                    onChange={(e) => setPendingTasksFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">All Projects</option>
+                    {projects.map(project => (
+                      <option key={project.id} value={project.id}> 
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div> 
+                {pendingApprovalTasks.length === 0 ? ( 
+                  <p className="text-lg italic mt-4">No tasks pending approval.</p>
+                ) : (
+                  <ul className="list-disc list-inside mt-4 space-y-3">
+                    {pendingApprovalTasks.slice(0, 5).map(task => (
+                      <li key={task.id} className="text-lg flex justify-between items-center"> 
+                        <div>
+                          <span className="font-semibold">{task.title}</span> (Assigned: {task.assignedToUsername || 'N/A'})
+                          <span className="block text-sm text-gray-200 dark:text-gray-400">Project: {task.projectName || 'N/A'}</span> 
+                        </div>
+                        <button
+                          onClick={() => handleApproveTask(task.id)}
+                          className="btn btn-sm btn-success text-white rounded-full ml-4" 
+                        >
+                          Approve
+                        </button>
+                      </li> 
+                    ))}
+                    {pendingApprovalTasks.length > 5 && (
+                      <li className="text-lg italic">And {pendingApprovalTasks.length - 5} more...</li>
+                    )}
+                  </ul> 
+                )}
+                <div className="card-actions justify-end mt-6">
+                  <a
+                    href="/tasks/pending"
+                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-amber-600 dark:hover:text-amber-600 rounded-full"
+                  >
+                    View Pending
+                  </a>
+                </div>
+              </div> 
+            </div>
+
+            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 lg:col-span-3">
+              <div className="card-body p-6">
+                <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100">Your Projects</h2> 
+                {projects.length === 0 ? ( 
                   <p className="text-lg italic text-gray-500 dark:text-gray-400">No projects available. Create one to get started!</p>
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
                     {projects.map(project => (
-                      <div key={project.id} className="card bg-gray-50 dark:bg-gray-700 shadow-md rounded-xl hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200">
+                      <div key={project.id} className="card bg-gray-50 dark:bg-gray-700 shadow-md rounded-xl hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"> 
                         <div className="card-body p-4">
                           <h3 className="card-title text-lg font-bold text-gray-800 dark:text-gray-100">{project.name}</h3>
-                          <p className="text-sm text-gray-600 dark:text-gray-300">Owner: {project.ownerUsername}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Owner: {project.ownerUsername}</p> 
                           <p className="text-sm text-gray-600 dark:text-gray-300">
                             Team Members: <span className="font-semibold">{project.teamMembers.length}</span>
                           </p>
-                          <div className="card-actions justify-end mt-4">
-                            <a href={`/projects/${project.id}/tasks`} className="btn btn-sm btn-primary rounded-full">
-                              View Tasks
-                            </a>
-                          </div>
+                            <div className="card-actions justify-end mt-4"> 
+                            <Link href={`/projects/${project.id}`} className="btn btn-sm btn-primary rounded-full">
+                              View Project 
+                            </Link>
+                            </div>
                         </div>
                       </div>
-                    ))}
+                    ))} 
                   </div>
                 )}
               </div>
             </div>
+
+            <div className="card bg-gradient-to-br from-blue-600 to-blue-800 text-white dark:text-gray-100 shadow-2xl rounded-2xl hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1 lg:col-span-3"> 
+              <div className="card-body p-6">
+                <h2 className="card-title text-2xl font-extrabold">Manager's Team Overview</h2>
+                {managerTeamOverview?.message ? ( 
+                  <p className="text-lg italic mt-4">{managerTeamOverview.message}</p>
+                ) : (
+                  <>
+                    <p className="text-xl">Total Tasks in Teams: <span className="font-extrabold text-3xl">{managerTeamOverview?.totalTasksForTeams || 0}</span></p> 
+                    <p className="text-xl">Overdue Tasks in Teams: <span className="font-extrabold text-3xl text-rose-300">{managerTeamOverview?.overdueTasksForTeams || 0}</span></p>
+
+                    <div className="mt-4">
+                      <h3 className="text-lg font-bold">Team Status Summaries:</h3>
+                      {managerTeamOverview?.teamStatusSummaries && managerTeamOverview.teamStatusSummaries.length > 0 ? ( 
+                        <ul className="list-disc list-inside text-lg">
+                          {managerTeamOverview.teamStatusSummaries.map((summary, idx) => (
+                            <li key={idx}>Team: {summary.teamName || 'N/A'} - {summary.status}: {summary.count}</li> 
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="italic text-gray-200">No status summaries available.</p> 
+                      )}
+                    </div>
+
+                    <div className="mt-4">
+                      <h3 className="text-lg font-bold">Team Total Hours Logged:</h3>
+                      {managerTeamOverview?.teamTotalHoursLogged && managerTeamOverview.teamTotalHoursLogged.length > 0 ? ( 
+                        <ul className="list-disc list-inside text-lg">
+                          {managerTeamOverview.teamTotalHoursLogged.map((log, idx) => (
+                            <li key={idx}>Team: {log.teamName || 'N/A'} - {log.totalHours} hours</li> 
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="italic text-gray-200">No time logs available.</p> 
+                      )}
+                    </div>
+
+                    <div className="mt-4">
+                      <h3 className="text-lg font-bold">Team Completion Rates:</h3>
+                      {managerTeamOverview?.teamCompletionRates && managerTeamOverview.teamCompletionRates.length > 0 ? ( 
+                        <ul className="list-disc list-inside text-lg">
+                          {managerTeamOverview.teamCompletionRates.map((rate, idx) => (
+                            <li key={idx}>Team: {rate.teamName || 'N/A'} - {rate.completionRate}% ({rate.completedTasks}/{rate.totalTasks})</li> 
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="italic text-gray-200">No completion rates available.</p> 
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
           </div>
 
           <div className="flex justify-center mt-10">
@@ -888,13 +1080,13 @@ useEffect(() => {
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6 mr-2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              Create New Task
+              Create New Task 
             </button>
           </div>
 
-          <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300">
+          <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300"> 
             <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100 mb-4">
-              {reportDatePreset === 'last7' ? 'Last 7 Days' : reportDatePreset === 'last30' ? 'Last 30 Days' : reportDatePreset === 'thisMonth' ? 'This Month' : reportDatePreset === 'lastMonth' ? 'Last Month' : reportDatePreset === 'thisQuarter' ? 'This Quarter' : 'Custom Range'} Task Completion Trend
+              {reportDatePreset === 'last7' ? 'Last 7 Days' : reportDatePreset === 'last30' ? 'Last 30 Days' : reportDatePreset === 'thisMonth' ? 'This Month' : reportDatePreset === 'lastMonth' ? 'Last Month' : reportDatePreset === 'thisQuarter' ? 'This Quarter' : 'Custom Range'} Task Completion Trend 
             </h2>
             <div className="h-96 w-full">
               <Bar data={chartData} options={chartOptions} />
@@ -902,139 +1094,204 @@ useEffect(() => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300">
+            <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300"> 
               <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100 mb-4">Workload Distribution</h2>
               <div className="form-control mb-4">
-           
-               <div className="form-control mb-4">
-  <label className="label">
-    <span className="label-text text-gray-700 dark:text-gray-300">Filter by Collaborator</span>
-  </label>
-  <select
-    className="select select-bordered w-full rounded-lg"
-    value={workloadFilterUserId || ''}
-    onChange={(e) => setWorkloadFilterUserId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-  >
-    <option value="">All Collaborators</option>
-    {collaborators.map(c => (
-      <option key={c.id} value={c.id}>
-        {c.username} (ID: {c.id})
-      </option>
-    ))}
-  </select>
-</div>
+                <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Collaborator</span>
+                </label> 
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={workloadFilterUserId || ''} 
+                  onChange={(e) => setWorkloadFilterUserId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Collaborators</option>
+                  {collaborators.map(c => (
+                    <option key={c.id} value={c.id}> 
+                      {c.username} (ID: {c.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-control mb-4"> 
+                <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
+                </label>
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={workloadFilterProjectId || ''} 
+                  onChange={(e) => setWorkloadFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Projects</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}> 
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="form-control mb-4">
                 <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Team</span>
+                </label>
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={workloadFilterTeamId || ''}
+                  onChange={(e) => setWorkloadFilterTeamId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Teams</option>
+                  {managerTeamOverview?.teamStatusSummaries && Array.from(new Set(managerTeamOverview.teamStatusSummaries.map(s => JSON.stringify({ id: s.teamId, name: s.teamName }))))
+                      .map(teamStr => {
+                        const team = JSON.parse(teamStr);
+                        return <option key={team.id} value={team.id}>{team.name}</option>;
+                      })
+                    }
+                </select>
+              </div>
+              <div className="form-control mb-4"> 
+                <label className="label">
                   <span className="label-text text-gray-700 dark:text-gray-300">Date Range</span>
                 </label>
-           <DatePicker
-  selectsRange={true}
-  startDate={workloadDateRange.startDate}
-  endDate={workloadDateRange.endDate}
-  onChange={(update: [Date | null, Date | null]) => {
-    setWorkloadDateRange({ startDate: update[0], endDate: update[1] });
-  }}
-  isClearable={true}
-  maxDate={new Date()} // Add this line
-  className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
-  placeholderText="Select date range"
-/>
-              </div>
-              {workloadDistribution.length === 0 ? (
+                <DatePicker
+                  selectsRange={true}
+                  startDate={workloadDateRange.startDate}
+                  endDate={workloadDateRange.endDate}
+                  onChange={(update: [Date | null, Date | null]) => { 
+                    setWorkloadDateRange({ startDate: update[0], endDate: update[1] }); 
+                  }}
+                  isClearable={true}
+                  maxDate={new Date()}
+                  className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
+                  placeholderText="Select date range"
+                />
+              </div> 
+              {workloadDistribution.length === 0 ? ( 
                 <p className="text-lg italic text-gray-500 dark:text-gray-400">No workload data available for these filters.</p>
               ) : (
                 <>
                   <div className="overflow-x-auto mb-6">
-                    <table className="table w-full table-zebra rounded-lg">
+                    <table className="table w-full table-zebra rounded-lg"> 
                       <thead>
                         <tr className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-100">
                           <th className="text-left">Username</th>
-                          <th className="text-left">Total Tasks</th>
+                          <th className="text-left">Total Tasks</th> 
                           <th className="text-left">Pending</th>
-                          <th className="text-left">Approved</th>
+                          <th className="text-left">Pen_Approval</th>
                           <th className="text-left">Completed</th>
-                          <th className="text-left">Rejected</th>
+                          <th className="text-left">Rejected</th> 
                         </tr>
                       </thead>
                       <tbody>
-                        {workloadDistribution.map((data, idx) => (
+                        {workloadDistribution.map((data, idx) => ( 
                           <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-600">
                             <td className="font-medium text-gray-900 dark:text-gray-100">{data.username}</td>
-                            <td className="text-gray-900 dark:text-gray-100">{data.taskCount}</td>
-                            <td><span className="badge badge-warning badge-lg">{data.statusBreakdown.PENDING || 0}</span></td>
-                            <td><span className="badge badge-info badge-lg">{data.statusBreakdown.APPROVED || 0}</span></td>
-                            <td><span className="badge badge-success badge-lg">{data.statusBreakdown.COMPLETED || 0}</span></td>
-                            <td><span className="badge badge-error badge-lg">{data.statusBreakdown.REJECTED || 0}</span></td>
+                            <td className="text-gray-900 dark:text-gray-100">{data.taskCount}</td> 
+                            <td><span className="badge badge-warning badge-lg">{data.statusBreakdown.PENDING || 0}</span></td> 
+                            <td><span className="badge badge-info badge-lg">{data.statusBreakdown.PENDING_APPROVAL || 0}</span></td> 
+                            <td><span className="badge badge-success badge-lg">{data.statusBreakdown.COMPLETED || 0}</span></td> 
+                            <td><span className="badge badge-error badge-lg">{data.statusBreakdown.REJECTED || 0}</span></td> 
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </div> 
                   <div className="h-96 w-full">
                     <Bar data={workloadChartData} options={workloadChartOptions} />
                   </div>
                 </>
-              )}
+              )} 
             </div>
 
             <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300">
               <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100 mb-4">Total Hours Logged</h2>
               <div className="form-control mb-2">
-                <div className="form-control mb-2">
-  <label className="label">
-    <span className="label-text text-gray-700 dark:text-gray-300">Filter by Collaborator</span>
-  </label>
-  <select
-    className="select select-bordered w-full rounded-lg"
-    value={hoursFilterUserId || ''}
-    onChange={(e) => setHoursFilterUserId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-  >
-    <option value="">All Collaborators</option>
-    {collaborators.map(c => (
-      <option key={c.id} value={c.id}>
-        {c.username} (ID: {c.id})
-      </option>
-    ))}
-  </select>
-</div>
+                <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Collaborator</span>
+                </label> 
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={hoursFilterUserId || ''} 
+                  onChange={(e) => setHoursFilterUserId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Collaborators</option>
+                  {collaborators.map(c => (
+                    <option key={c.id} value={c.id}> 
+                      {c.username} (ID: {c.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-control mb-4"> 
+                <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
+                </label>
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={hoursFilterProjectId || ''} 
+                  onChange={(e) => setHoursFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Projects</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}> 
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="form-control mb-4">
                 <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Team</span>
+                </label>
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={hoursFilterTeamId || ''}
+                  onChange={(e) => setHoursFilterTeamId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Teams</option>
+                  {managerTeamOverview?.teamStatusSummaries && Array.from(new Set(managerTeamOverview.teamStatusSummaries.map(s => JSON.stringify({ id: s.teamId, name: s.teamName }))))
+                      .map(teamStr => {
+                        const team = JSON.parse(teamStr);
+                        return <option key={team.id} value={team.id}>{team.name}</option>;
+                      })
+                    }
+                </select>
+              </div>
+              <div className="form-control mb-4"> 
+                <label className="label">
                   <span className="label-text text-gray-700 dark:text-gray-300">Date Range</span>
                 </label>
-             <DatePicker
-  selectsRange={true}
-  startDate={hoursDateRange.startDate}
-  endDate={hoursDateRange.endDate}
-  onChange={(update: [Date | null, Date | null]) => {
-    setHoursDateRange({ startDate: update[0], endDate: update[1] });
-  }}
-  isClearable={true}
-  maxDate={new Date()} 
-  className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
-  placeholderText="Select date range"
-/>
-              </div>
-              {totalHoursPerUser.length === 0 ? (
+                <DatePicker
+                  selectsRange={true}
+                  startDate={hoursDateRange.startDate}
+                  endDate={hoursDateRange.endDate}
+                  onChange={(update: [Date | null, Date | null]) => { 
+                    setHoursDateRange({ startDate: update[0], endDate: update[1] }); 
+                  }}
+                  isClearable={true}
+                  maxDate={new Date()}
+                  className="input input-bordered w-full rounded-lg text-gray-900 dark:text-gray-100"
+                  placeholderText="Select date range"
+                />
+              </div> 
+              {totalHoursPerUser.length === 0 ? ( 
                 <p className="text-lg italic text-gray-500 dark:text-gray-400">No time logs available for these filters.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="table w-full table-zebra rounded-lg">
+                  <table className="table w-full table-zebra rounded-lg"> 
                     <thead>
                       <tr className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-100">
                         <th className="text-left">Username</th>
                         <th className="text-left">Total Hours</th>
-                      </tr>
+                      </tr> 
                     </thead>
                     <tbody>
                       {totalHoursPerUser.map((data, idx) => (
                         <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-600">
-                          <td className="font-medium text-gray-900 dark:text-gray-100">{data.username}</td>
+                          <td className="font-medium text-gray-900 dark:text-gray-100">{data.username}</td> 
                           <td className="text-gray-900 dark:text-gray-100"><span className="font-semibold">{data.totalHours}</span> hours</td>
                         </tr>
                       ))}
-                    </tbody>
+                    </tbody> 
                   </table>
                 </div>
               )}
@@ -1047,18 +1304,36 @@ useEffect(() => {
               <div className="form-control mb-4">
                 <label className="label">
                   <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
-                </label>
+                </label> 
                 <select
                   className="select select-bordered w-full rounded-lg"
-                  value={priorityFilterProjectId || ''}
+                  value={priorityFilterProjectId || ''} 
                   onChange={(e) => setPriorityFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
                 >
                   <option value="">All Projects</option>
                   {projects.map(project => (
-                    <option key={project.id} value={project.id}>
+                    <option key={project.id} value={project.id}> 
                       {project.name}
                     </option>
                   ))}
+                </select>
+              </div>
+              <div className="form-control mb-4">
+                <label className="label">
+                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Team</span>
+                </label>
+                <select
+                  className="select select-bordered w-full rounded-lg"
+                  value={priorityFilterTeamId || ''}
+                  onChange={(e) => setPriorityFilterTeamId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                >
+                  <option value="">All Teams</option>
+                  {managerTeamOverview?.teamStatusSummaries && Array.from(new Set(managerTeamOverview.teamStatusSummaries.map(s => JSON.stringify({ id: s.teamId, name: s.teamName }))))
+                      .map(teamStr => {
+                        const team = JSON.parse(teamStr);
+                        return <option key={team.id} value={team.id}>{team.name}</option>;
+                      })
+                    }
                 </select>
               </div>
               {prioritySummary.length === 0 ? (
@@ -1074,12 +1349,12 @@ useEffect(() => {
           {isCreateTaskModalOpen && (
             <dialog id="create_task_modal" className="modal modal-open">
               <div className="modal-box bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-lg">
-                <h3 className="font-extrabold text-3xl text-gray-900 dark:text-gray-100 mb-6">Create New Task</h3>
+                <h3 className="font-extrabold text-3xl text-gray-900 dark:text-gray-100 mb-6">Create New Task</h3> 
                 <form onSubmit={handleCreateTask} className="space-y-6">
                   <div>
                     <label className="label">
                       <span className="label-text font-medium text-gray-700 dark:text-gray-300">Title</span>
-                    </label>
+                    </label> 
                     <input
                       type="text"
                       name="title"
@@ -1088,12 +1363,12 @@ useEffect(() => {
                       value={newTask.title}
                       onChange={handleNewTaskChange}
                       required
-                    />
+                    /> 
                   </div>
                   <div>
                     <label className="label">
                       <span className="label-text font-medium text-gray-700 dark:text-gray-300">Description (Optional)</span>
-                    </label>
+                    </label> 
                     <textarea
                       name="description"
                       placeholder="Task Description"
@@ -1102,9 +1377,9 @@ useEffect(() => {
                       onChange={handleNewTaskChange}
                     ></textarea>
                   </div>
-                  <div>
+                  <div> 
                     <label className="label">
-                      <span className="label-text font-medium text-gray-700 dark:text-gray-300">Deadline (Optional)</span>
+                      <span className="label-text font-medium text-gray-700 dark:text-gray-300">Deadline</span>
                     </label>
                     <input
                       type="date"
@@ -1112,12 +1387,13 @@ useEffect(() => {
                       className="input input-bordered w-full rounded-lg focus:ring-2 focus:ring-indigo-500"
                       value={newTask.deadline}
                       onChange={handleNewTaskChange}
+                      required
                     />
                   </div>
                   <div>
                     <label className="label">
                       <span className="label-text font-medium text-gray-700 dark:text-gray-300">Priority (Optional)</span>
-                    </label>
+                    </label> 
                     <select
                       name="priority"
                       className="select select-bordered w-full rounded-lg focus:ring-2 focus:ring-indigo-500"
@@ -1125,28 +1401,32 @@ useEffect(() => {
                       onChange={handleNewTaskChange}
                     >
                       <option value="LOW">Low</option>
-                      <option value="MEDIUM">Medium</option>
+                      <option value="MEDIUM">Medium</option> 
                       <option value="HIGH">High</option>
-                      <option value="URGENT">Urgent</option>
                     </select>
                   </div>
                   <div>
                     <label className="label">
-                      <span className="label-text font-medium text-gray-700 dark:text-gray-300">Assign To (User ID - Optional)</span>
-                    </label>
-                    <input
-                      type="number"
+                      <span className="label-text font-medium text-gray-700 dark:text-gray-300">Assign To (Optional)</span>
+                    </label> 
+                    <select
                       name="assignedToId"
-                      placeholder="Collaborator User ID"
-                      className="input input-bordered w-full rounded-lg focus:ring-2 focus:ring-indigo-500"
-                      value={newTask.assignedToId || ''}
+                      className="select select-bordered w-full rounded-lg focus:ring-2 focus:ring-indigo-500"
+                      value={newTask.assignedToId || ''} 
                       onChange={handleNewTaskChange}
-                    />
+                    >
+                      <option value="">Unassigned</option>
+                      {collaborators.map(collaborator => (
+                        <option key={collaborator.id} value={collaborator.id}> 
+                          {collaborator.username}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="label">
                       <span className="label-text font-medium text-gray-700 dark:text-gray-300">Project (Required)</span>
-                    </label>
+                    </label> 
                     <select
                       name="projectId"
                       className="select select-bordered w-full rounded-lg focus:ring-2 focus:ring-indigo-500"
@@ -1155,67 +1435,66 @@ useEffect(() => {
                       required
                     >
                       <option value={0} disabled>
-                        Select a project
+                        Select a project 
                       </option>
                       {projects.map(project => (
-                        <option key={project.id} value={project.id}>
+                        <option key={project.id} value={project.id}> 
                           {project.name}
                         </option>
                       ))}
                     </select>
-                  </div>
+                  </div> 
 
                   {createTaskError && (
                     <div role="alert" className="alert alert-error rounded-lg">
                       <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /> 
                       </svg>
                       <span className="text-red-800 dark:text-red-100">{createTaskError}</span>
                     </div>
-                  )}
+                  )} 
                   {createTaskSuccess && (
                     <div role="alert" className="alert alert-success rounded-lg">
                       <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /> 
                       </svg>
                       <span className="text-green-800 dark:text-green-100">{createTaskSuccess}</span>
                     </div>
-                  )}
+                  )} 
 
                   <div className="modal-action flex justify-end gap-4">
                     <button type="submit" className="btn btn-primary rounded-full shadow-md hover:shadow-lg">
-                      Create Task
+                      Create Task 
                     </button>
                     <button
                       type="button"
                       className="btn btn-outline rounded-full"
                       onClick={() => {
-                        setIsCreateTaskModalOpen(false);
+                        setIsCreateTaskModalOpen(false); 
                         setCreateTaskError(null);
-                        setCreateTaskSuccess(null);
+                        setCreateTaskSuccess(null); 
                         setNewTask({
                           title: '',
                           description: '',
                           deadline: '',
-                          priority: 'MEDIUM',
+                          priority: 'MEDIUM', 
                           assignedToId: undefined,
                           projectId: 0,
-                        });
+                        }); 
                       }}
                     >
                       Close
                     </button>
                   </div>
                 </form>
-              </div>
+              </div> 
             </dialog>
           )}
 
-          {/* Feedback Modal */}
           {modal.isOpen && (
             <dialog className="modal modal-open">
               <div className="modal-box bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl text-center">
-                <h3 className={`font-bold text-lg ${modal.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                <h3 className={`font-bold text-lg ${modal.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}> 
                   {modal.type === 'success' ? 'Success!' : 'Error!'}
                 </h3>
                 <p className="py-4 text-gray-900 dark:text-gray-100">{modal.message}</p>
@@ -1224,7 +1503,7 @@ useEffect(() => {
                     className={`btn ${modal.type === 'success' ? 'btn-success' : 'btn-error'}`}
                     onClick={() => setModal({ isOpen: false, type: 'success', message: '' })}
                   >
-                    OK
+                    OK 
                   </button>
                 </div>
               </div>

@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { UserService } from 'src/user/user.service';
 import { AverageCompletionTimeDto, TaskCompletionRateDto, TotalHoursPerTaskDto, TotalHoursPerUserDto, WorkloadDistributionDto } from './dto/progress.dto';
+import { GetUser } from 'src/auth/decorators/get-user.decorator';
 
 
 @Controller('progress')
@@ -92,19 +93,22 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
   fileStream.pipe(res);
 }
 
-  @Get('task-completion-rate')
+ @Get('task-completion-rate')
   @Roles('MANAGER')
   async getTaskCompletionRate(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('username') username?: string,
     @Query('userId') userId?: string,
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, 
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,    
   ): Promise<TaskCompletionRateDto> {
     return this.progressService.getTaskCompletionRate(
       startDate,
       endDate,
       username,
       userId ? parseInt(userId, 10) : undefined,
+      projectId, 
     );
   }
 
@@ -125,21 +129,57 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
   }
 
 @Get('workload-distribution')
-  @Roles('MANAGER')
+  @Roles('MANAGER', 'COLLABORATOR') // Both roles can access, service handles internal filtering
   async getWorkloadDistribution(
+    @GetUser('id') requestingUserId: number, // Inject the authenticated user's ID
     @Query('username') username?: string,
-    @Query('userId') userId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
+    @Query('userId', new ParseIntPipe({ optional: true })) userId?: number, // Parsed as number
+    @Query('startDate') startDateStr?: string, // Renamed to avoid direct Date type for query param
+    @Query('endDate') endDateStr?: string,     // Renamed
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,
   ): Promise<WorkloadDistributionDto[]> {
+    // Parse date strings to Date objects for the service layer
+    const startDate = startDateStr ? new Date(startDateStr) : undefined;
+    const endDate = endDateStr ? new Date(endDateStr) : undefined;
+
     return this.progressService.getWorkloadDistribution(
+      requestingUserId,
       username,
-      userId ? parseInt(userId, 10) : undefined,
-      startDate,
-      endDate,
+      userId,
+      startDate, // Pass parsed Date object
+      endDate,   // Pass parsed Date object
+      projectId,
+      teamId,
     );
   }
- 
+
+  @Get('total-hours/user')
+  @Roles('MANAGER', 'COLLABORATOR') // Both roles can access, service handles internal filtering
+  async getTotalHoursPerUser(
+    @GetUser('id') requestingUserId: number, // Inject the authenticated user's ID
+    @Query('username') username?: string,
+    @Query('userId', new ParseIntPipe({ optional: true })) userId?: number, // Parsed as number
+    @Query('startDate') startDateStr?: string, // Renamed
+    @Query('endDate') endDateStr?: string,     // Renamed
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,
+  ): Promise<TotalHoursPerUserDto[]> {
+    // Parse date strings to Date objects for the service layer
+    const startDate = startDateStr ? new Date(startDateStr) : undefined;
+    const endDate = endDateStr ? new Date(endDateStr) : undefined;
+
+    return this.progressService.getTotalHoursPerUser(
+      requestingUserId,
+      username,
+      userId,
+      startDate, // Pass parsed Date object
+      endDate,   // Pass parsed Date object
+      projectId,
+      teamId,
+    );
+  }
+
   @Get('total-hours/task/:id')
   @Roles('MANAGER')
   async getTotalHoursPerTask(
@@ -148,53 +188,37 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
     return this.progressService.getTotalHoursPerTask(taskId);
   }
 
-  @Get('total-hours/user')
+
+ @Get('custom-report')
   @Roles('MANAGER')
-  async getTotalHoursPerUser(
-    @Query('username') username?: string,
-    @Query('userId') userId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ): Promise<TotalHoursPerUserDto[]> {
-    return this.progressService.getTotalHoursPerUser(
-      username,
-      userId ? parseInt(userId, 10) : undefined,
-      startDate,
-      endDate,
-    );
+  async getCustomReport(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, // Add projectId
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,      // Add teamId
+  ): Promise<ProgressReportDto> {
+    if (!startDate || !endDate) {
+      throw new BadRequestException('Start date and end date are required.'); 
+    }
+    return this.progressService.generateCustomReport(startDate, endDate, projectId, teamId);
   }
 
+  @Get('download-custom-report-pdf')
+  @Roles('MANAGER')
+  async downloadCustomReportPDF(
+    @Res() res: Response,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, // Add projectId
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,      // Add teamId
+  ) {
+    const pdfBuffer = await this.progressService.generateCustomReportPDF(startDate, endDate, projectId, teamId); 
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=custom_report_${startDate}_to_${endDate}.pdf`,
+      'Content-Length': pdfBuffer.length,
+    });
 
-
-@Get('custom-report')
-@Roles('MANAGER')
-async getCustomReport(
-  @Query('startDate') startDate: string,
-  @Query('endDate') endDate: string,
-): Promise<ProgressReportDto> {
-  if (!startDate || !endDate) {
-    throw new BadRequestException('Start date and end date are required.');
+    res.send(pdfBuffer);
   }
-  return this.progressService.generateCustomReport(startDate, endDate);
-}
-
-@Get('download-custom-report-pdf')
-@Roles('MANAGER')
-async downloadCustomReportPDF(
-  @Query('startDate') startDate: string,
-  @Query('endDate') endDate: string,
-  @Res() res: Response,
-) {
-  const pdfBuffer = await this.progressService.generateCustomReportPDF(startDate, endDate);
-
-  res.set({
-    'Content-Type': 'application/pdf',
-    'Content-Disposition': `attachment; filename=custom_report_${startDate}_to_${endDate}.pdf`,
-    'Content-Length': pdfBuffer.length,
-  });
-
-  res.send(pdfBuffer);
-}
-
-
 }

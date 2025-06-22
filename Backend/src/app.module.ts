@@ -26,6 +26,10 @@ import { PaymentHistory } from './entities/payment-history.entity';
 import { TimeLog } from './entities/time-log.entity';
 import { Team } from './entities/team.entity';
 import { Project } from './entities/project.entity';
+import { Conversation } from './entities/conversation.entity';
+import { Message } from './entities/message.entity';
+import { ConversationParticipant } from './entities/participant.entity';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -43,7 +47,7 @@ import { Project } from './entities/project.entity';
       username: 'postgres',
       password: 'root',
       database: 'task_management_db',
-      entities: [User, Role, Token,Team,Project,TimeLog, Task,TaskComment,PaymentHistory,TaskAttachment,Notification,TaskHistory],
+      entities: [User,Conversation,Message,ConversationParticipant, Role, Token,Team,Project,TimeLog, Task,TaskComment,PaymentHistory,TaskAttachment,Notification,TaskHistory],
       synchronize: true,
       autoLoadEntities: true,
     }),
@@ -59,6 +63,7 @@ import { Project } from './entities/project.entity';
     TaskModule,
     ProgressModule,
     PaymentModule,
+    ChatModule,
   ],
 })
 export class AppModule implements NestModule {

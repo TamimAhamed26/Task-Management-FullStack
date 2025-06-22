@@ -36,7 +36,7 @@ export class UserController {
     @GetUser('id') id: number,
     @Body() dto: UpdateProfileDto,
   ) {
-    return this.userService.updateProfile(id, dto);
+  return this.userService.updateProfile(id, dto); 
   }
 @Get('collaborators')
 @Roles('MANAGER')

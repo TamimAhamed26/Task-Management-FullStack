@@ -48,6 +48,17 @@ interface Collaborator {
   username: string;
 }
 
+interface TaskCommentDto {
+  id: number;
+  taskId: number;
+  authorUsername: string;
+  content: string;
+  mentions: number[];
+  createdAt: Date;
+  parentCommentId?: number;
+  children?: TaskCommentDto[];
+}
+
 export default function OverdueTasksPage() {
   const { user, loading, feedback } = useAuthGuard();
   const [overdueTasks, setOverdueTasks] = useState<OverdueTaskDto[]>([]);
@@ -88,7 +99,6 @@ export default function OverdueTasksPage() {
     task: TaskDto | null;
     error: string | null;
   }>({ isOpen: false, task: null, error: null });
-
   const [quickEditModal, setQuickEditModal] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -96,13 +106,14 @@ export default function OverdueTasksPage() {
     dueDate: string;
     priority: string;
   }>({ isOpen: false, taskId: null, taskTitle: '', dueDate: '', priority: 'MEDIUM' });
-
   const [commentModal, setCommentModal] = useState<{
     isOpen: boolean;
     taskId: number | null;
     taskTitle: string;
     comment: string;
-  }>({ isOpen: false, taskId: null, taskTitle: '', comment: '' });
+    parentCommentId?: number;
+    comments: TaskCommentDto[];
+  }>({ isOpen: false, taskId: null, taskTitle: '', comment: '', comments: [] });
 
   const limitOptions = [10, 20, 50];
 
@@ -155,6 +166,23 @@ export default function OverdueTasksPage() {
         ...prev,
         error: err.response?.data?.message || 'Failed to load task details.',
       }));
+    }
+  }, []);
+
+  const fetchTaskComments = useCallback(async (taskId: number) => {
+    try {
+      const res = await axios.get(`http://localhost:3001/tasks/${taskId}/comments`, {
+        withCredentials: true,
+      });
+      return res.data;
+    } catch (err: any) {
+      console.error('Failed to fetch task comments:', err);
+      setModal({
+        isOpen: true,
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to load task comments.',
+      });
+      return [];
     }
   }, []);
 
@@ -219,6 +247,25 @@ export default function OverdueTasksPage() {
     }
   };
 
+  const handleRejectTask = async (taskId: number) => {
+    try {
+      await axios.patch(`http://localhost:3001/tasks/${taskId}/reject`, {}, { withCredentials: true });
+      setModal({
+        isOpen: true,
+        type: 'success',
+        message: 'Task rejected successfully!',
+      });
+      fetchData();
+    } catch (err: any) {
+      console.error('Failed to reject task:', err);
+      setModal({
+        isOpen: true,
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to reject task. Please try again.',
+      });
+    }
+  };
+
   const handleReassignTask = async () => {
     if (!reassignModal.taskId || !reassignModal.collaboratorId) return;
     try {
@@ -242,7 +289,7 @@ export default function OverdueTasksPage() {
       });
     }
   };
-  
+
   const handleQuickEdit = async () => {
     if (!quickEditModal.taskId) return;
     try {
@@ -272,7 +319,7 @@ export default function OverdueTasksPage() {
     try {
       await axios.post(
         `http://localhost:3001/tasks/${commentModal.taskId}/comments`,
-        { content: commentModal.comment },
+        { content: commentModal.comment, parentCommentId: commentModal.parentCommentId },
         { withCredentials: true }
       );
       setModal({
@@ -280,7 +327,14 @@ export default function OverdueTasksPage() {
         type: 'success',
         message: 'Comment added successfully!',
       });
-      setCommentModal({ isOpen: false, taskId: null, taskTitle: '', comment: '' });
+      const updatedComments = await fetchTaskComments(commentModal.taskId);
+      setCommentModal((prev) => ({
+        ...prev,
+        isOpen: false,
+        comment: '',
+        parentCommentId: undefined,
+        comments: updatedComments,
+      }));
     } catch (err: any) {
       setModal({
         isOpen: true,
@@ -288,6 +342,18 @@ export default function OverdueTasksPage() {
         message: err.response?.data?.message || 'Failed to add comment.',
       });
     }
+  };
+
+  const openCommentModal = async (taskId: number, taskTitle: string, parentCommentId?: number) => {
+    const comments = await fetchTaskComments(taskId);
+    setCommentModal({
+      isOpen: true,
+      taskId,
+      taskTitle,
+      comment: '',
+      parentCommentId,
+      comments,
+    });
   };
 
   if (loading || !user) {
@@ -346,6 +412,31 @@ export default function OverdueTasksPage() {
       </div>
     );
   }
+
+  const renderComments = (comments: TaskCommentDto[], level: number = 0) => {
+    return comments.map((comment) => (
+      <div key={comment.id} className={`ml-${level * 4} mb-4 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg`}>
+        <div className="flex justify-between items-center">
+          <div>
+            <span className="font-bold text-gray-900 dark:text-gray-100">{comment.authorUsername}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
+              {new Date(comment.createdAt).toLocaleString()}
+            </span>
+          </div>
+          <button
+            onClick={() => openCommentModal(comment.taskId, commentModal.taskTitle, comment.id)}
+            className="btn btn-xs btn-outline rounded-full"
+          >
+            Reply
+          </button>
+        </div>
+        <p className="text-gray-900 dark:text-gray-100 mt-2">{comment.content}</p>
+        {comment.children && comment.children.length > 0 && (
+          <div className="mt-2">{renderComments(comment.children, level + 1)}</div>
+        )}
+      </div>
+    ));
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-700 p-6 md:p-10 font-sans antialiased">
@@ -555,12 +646,20 @@ export default function OverdueTasksPage() {
                       <td>
                         <div className="flex flex-wrap gap-2">
                           {task.status === 'PENDING_APPROVAL' && (
-                            <button
-                              onClick={() => handleApproveTask(task.id)}
-                              className="btn btn-xs btn-success text-white rounded-full"
-                            >
-                              Approve
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleApproveTask(task.id)}
+                                className="btn btn-xs btn-success text-white rounded-full"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectTask(task.id)}
+                                className="btn btn-xs btn-error text-white rounded-full"
+                              >
+                                Reject
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={() =>
@@ -577,14 +676,7 @@ export default function OverdueTasksPage() {
                             Edit
                           </button>
                           <button
-                            onClick={() =>
-                              setCommentModal({
-                                isOpen: true,
-                                taskId: task.id,
-                                taskTitle: task.title,
-                                comment: '',
-                              })
-                            }
+                            onClick={() => openCommentModal(task.id, task.title)}
                             className="btn btn-xs btn-secondary rounded-full"
                           >
                             Comment
@@ -654,7 +746,7 @@ export default function OverdueTasksPage() {
                 type="date"
                 className="input input-bordered w-full rounded-lg"
                 value={quickEditModal.dueDate}
-                onChange={(e) => setQuickEditModal(prev => ({ ...prev, dueDate: e.target.value }))}
+                onChange={(e) => setQuickEditModal((prev) => ({ ...prev, dueDate: e.target.value }))}
               />
             </div>
             <div className="form-control mt-4">
@@ -664,7 +756,7 @@ export default function OverdueTasksPage() {
               <select
                 className="select select-bordered w-full rounded-lg"
                 value={quickEditModal.priority}
-                onChange={(e) => setQuickEditModal(prev => ({ ...prev, priority: e.target.value }))}
+                onChange={(e) => setQuickEditModal((prev) => ({ ...prev, priority: e.target.value }))}
               >
                 <option value="LOW">Low</option>
                 <option value="MEDIUM">Medium</option>
@@ -691,15 +783,22 @@ export default function OverdueTasksPage() {
         <dialog id="comment_modal" className="modal modal-open">
           <div className="modal-box bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md">
             <h3 className="font-extrabold text-2xl text-gray-900 dark:text-gray-100 mb-6">
-              Add Comment to: {commentModal.taskTitle}
+              Comments for: {commentModal.taskTitle}
             </h3>
+            <div className="max-h-64 overflow-y-auto mb-4">
+              {commentModal.comments.length > 0 ? (
+                renderComments(commentModal.comments)
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No comments yet.</p>
+              )}
+            </div>
             <div className="form-control">
               <textarea
                 className="textarea textarea-bordered w-full rounded-lg"
                 rows={4}
-                placeholder="Type your status update request or comment..."
+                placeholder="Type your comment... (Assignee will be notified)"
                 value={commentModal.comment}
-                onChange={(e) => setCommentModal(prev => ({ ...prev, comment: e.target.value }))}
+                onChange={(e) => setCommentModal((prev) => ({ ...prev, comment: e.target.value }))}
               ></textarea>
             </div>
             <div className="modal-action flex justify-end gap-4 mt-6">
@@ -707,7 +806,7 @@ export default function OverdueTasksPage() {
                 Add Comment
               </button>
               <button
-                onClick={() => setCommentModal({ isOpen: false, taskId: null, taskTitle: '', comment: '' })}
+                onClick={() => setCommentModal({ isOpen: false, taskId: null, taskTitle: '', comment: '', parentCommentId: undefined, comments: [] })}
                 className="btn btn-outline rounded-full"
               >
                 Cancel

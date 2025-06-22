@@ -22,11 +22,16 @@ export class UserService {
 
   ) {}
 
-  async findById(id: number): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id } });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
-  }
+async findById(id: number): Promise<User> {
+  const user = await this.userRepository.findOne({
+    where: { id },
+    relations: ['role'],
+    select: ['id', 'email', 'username', 'isVerified', 'role'], // Explicitly select needed fields
+  });
+  if (!user) throw new NotFoundException('User not found');
+  if (!user.username) throw new NotFoundException('User has no username, invalid data');
+  return user;
+}
   async findByUsername(username: string): Promise<User | null> {
     return this.userRepository.findOne({
       where: { username },
@@ -40,7 +45,7 @@ async getCollaborators(): Promise<{ id: number; username: string }[]> {
   });
   return collaborators.map(user => ({ id: user.id, username: user.username }));
 }
-  async updateProfile(id: number, updateDto: UpdateProfileDto): Promise<string> {
+async updateProfile(id: number, updateDto: UpdateProfileDto): Promise<{ message: string }> {
       const user = await this.findById(id);
   
       const allowedFields = ['username', 'email', 'phone'];
@@ -53,7 +58,7 @@ async getCollaborators(): Promise<{ id: number; username: string }[]> {
   
       Object.assign(user, updateDto);
       await this.userRepository.save(user);
-      return 'Profile updated successfully';
+        return { message: 'Profile updated successfully' };
   }
   
   async findByEmail(email: string): Promise<User | null> {

@@ -14,7 +14,6 @@ export class Team {
   @JoinTable()
   members: User[];
 
-  @OneToOne(() => Project, project => project.team)
-  @JoinColumn()
-  project: Project;
+@ManyToMany(() => Project, project => project.teams)
+projects: Project[];
 }

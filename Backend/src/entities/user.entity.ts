@@ -4,6 +4,8 @@ import { Token } from './token.entity';
 import { Notification } from 'src/entities/Notification.entity'; 
 import { Project } from './project.entity';
 import { Team } from './team.entity';
+import { Message } from './message.entity';
+import { ConversationParticipant } from './participant.entity';
 
 @Entity()
 export class User {
@@ -51,6 +53,12 @@ notifications: Notification[];
 
   @ManyToMany(() => Team, team => team.members)
   teams: Team[];
+
+  @OneToMany(() => Message, message => message.sender)
+  sentMessages: Message[];
+
+  @OneToMany(() => ConversationParticipant, participant => participant.user)
+  conversationParticipants: ConversationParticipant[];
 
 }
 
