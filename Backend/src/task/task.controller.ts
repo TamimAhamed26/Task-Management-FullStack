@@ -151,7 +151,7 @@ export class TaskController {
     return this.taskService.getTaskComments(id);
   }
   @Post(':id/attachments')
-  @Roles('MANAGER')
+ @Roles('MANAGER', 'COLLABORATOR')
   @UseInterceptors(FileInterceptor('file'))
   async uploadTaskAttachment(
     @Param('id', ParseIntPipe) id: number,
@@ -162,19 +162,19 @@ export class TaskController {
   }
 
   @Get(':id/attachments')
-  @Roles('COLLABORATOR')
+ @Roles('MANAGER', 'COLLABORATOR')
   async getTaskAttachments(@Param('id', ParseIntPipe) id: number): Promise<TaskAttachmentDto[]> {
     return this.taskService.getTaskAttachments(id);
   }
 
   @Get('notifications')
-  @Roles('COLLABORATOR')
+ @Roles('MANAGER', 'COLLABORATOR')
   async getUserNotifications(@GetUser('id') userId: number): Promise<NotificationDto[]> {
     return this.taskService.getUserNotifications(userId);
   }
 
   @Post('notifications/:id/read')
-  @Roles('COLLABORATOR')
+ @Roles('MANAGER', 'COLLABORATOR')
   async markNotificationAsRead(
     @Param('id', ParseIntPipe) id: number,
     @GetUser('id') userId: number,

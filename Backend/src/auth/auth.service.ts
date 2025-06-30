@@ -53,51 +53,61 @@ export class AuthService {
     };
   }
 
-async login(dto: LoginDto) {
-  const user = await this.userRepo.findOne({
-    where: { email: dto.email },
-    relations: ['role'],
-  });
-
-  if (!user || user.password !== dto.password) {
-    throw new UnauthorizedException('Invalid credentials');
+ private async _createToken(user: User, rememberMe: boolean = false) {
+    if (!user.role) {
+      throw new UnauthorizedException('Role not assigned');
+    }
+  
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role.name.toUpperCase(),
+    };
+  
+    const tokenExpiry = rememberMe ? '7d' : '60m';
+  
+    const accessToken = this.jwtService.sign(payload, {
+      secret: 'mysecretkey',
+      expiresIn: tokenExpiry,
+    });
+  
+    const accessTokenEntity = this.tokenRepo.create({
+      user,
+      token: accessToken,
+      type: TokenType.ACCESS,
+    });
+  
+    await this.tokenRepo.save(accessTokenEntity);
+  
+    user.lastActiveAt = new Date();
+    await this.userRepo.save(user);
+  
+    return { accessToken };
   }
 
-  if (!user.isVerified) {
-    throw new UnauthorizedException('Email not verified');
+
+  async login(dto: LoginDto) {
+    const user = await this.userRepo.findOne({
+      where: { email: dto.email },
+      relations: ['role'],
+    });
+  
+    if (!user || user.password !== dto.password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+  
+    if (!user.isVerified) {
+      throw new UnauthorizedException('Email not verified');
+    }
+  
+    return this._createToken(user, dto.rememberMe);
   }
 
-  if (!user.role) {
-    throw new UnauthorizedException('Role not assigned');
+
+  async loginSocial(user: User) {
+    return this._createToken(user, true); 
   }
 
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    role: user.role.name.toUpperCase(), 
-  };
-
-  // Extend expiry if rememberMe is true
-  const tokenExpiry = dto.rememberMe ? '7d' : '2m';
-
-  const accessToken = this.jwtService.sign(payload, {
-    secret: 'mysecretkey',
-    expiresIn: tokenExpiry,
-  });
-
-  const accessTokenEntity = this.tokenRepo.create({
-    user,
-    token: accessToken,
-    type: TokenType.ACCESS,
-  });
-
-  await this.tokenRepo.save(accessTokenEntity);
-
-  user.lastActiveAt = new Date();
-  await this.userRepo.save(user);
-
-  return { accessToken };
-}
 
   async verifyEmail(token: string) {
     const found = await this.tokenRepo.findOne({
@@ -113,7 +123,7 @@ async login(dto: LoginDto) {
   
     await this.tokenRepo.delete({ id: found.id });
   
-    return { message: 'Email successfully verified. You can now log in.' };
+    return { message: 'Email successfully verified. Please wait for admin to assign your role.' };
   }
   
   async resendVerificationEmail(email: string) {
@@ -241,6 +251,39 @@ async logout(userId: number, token: string, res?: Response) {
   }
 
   return { message: 'Logged out successfully' };
+}
+
+
+async findOrCreateGoogleUser(googleUser: {
+  googleId: string;
+  email: string;
+  username: string;
+  avatarUrl: string;
+}) {
+  let user = await this.userRepo.findOne({ where: { googleId: googleUser.googleId } });
+  if (user) {
+    return user;
+  }
+
+  user = await this.userRepo.findOne({ where: { email: googleUser.email }, relations: ['role'] });
+  if (user) {
+    user.googleId = googleUser.googleId;
+    return await this.userRepo.save(user);
+  }
+  
+  const crypto = await import('crypto');
+  const randomPassword = crypto.randomBytes(32).toString('hex');
+
+  const newUser = this.userRepo.create({
+    googleId: googleUser.googleId,
+    email: googleUser.email,
+    username: googleUser.username,
+    avatarUrl: googleUser.avatarUrl,
+    isVerified: true,
+    password: randomPassword,
+  });
+
+  return await this.userRepo.save(newUser);
 }
 
 }

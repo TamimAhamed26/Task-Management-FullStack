@@ -152,6 +152,7 @@ export default function DashboardPage() {
   const [hoursFilterProjectId, setHoursFilterProjectId] = useState<number | undefined>(undefined); 
   const [hoursFilterTeamId, setHoursFilterTeamId] = useState<number | undefined>(undefined); 
   const [priorityFilterTeamId, setPriorityFilterTeamId] = useState<number | undefined>(undefined);
+  
 
   const [newTask, setNewTask] = useState<CreateTaskDto>({
     title: '',
@@ -178,6 +179,8 @@ export default function DashboardPage() {
   const [reportStartDate, setReportStartDate] = useState<Date | null>(new Date());
   const [overdueTasksTotal, setOverdueTasksTotal] = useState<number>(0);
   const [reportEndDate, setReportEndDate] = useState<Date | null>(new Date());
+    const [reportFilterCollaboratorId, setReportFilterCollaboratorId] = useState<number | undefined>(undefined); // Add this state
+
   const [customReportRange, setCustomReportRange] = useState<[Date | null, Date | null]>([null, null]);
 
   const [modal, setModal] = useState<{
@@ -313,16 +316,20 @@ export default function DashboardPage() {
         prioritySummaryUrl += `${prioritySummaryUrl.includes('?') ? '&' : '?'}teamId=${priorityFilterTeamId}`;
     }
 
-    let reportUrl = `http://localhost:3001/progress/custom-report?startDate=${reportStartDate.toISOString().split('T')[0]}&endDate=${reportEndDate.toISOString().split('T')[0]}`;
+    let reportUrl = `http://localhost:3001/progress/custom-report?startDate=${reportStartDate.toISOString().split('T')[0]}&endDate=${reportEndDate.toISOString().split('T')[0]}`; 
     if (reportFilterProjectId) {
-      reportUrl += `&projectId=${reportFilterProjectId}`;
+      reportUrl += `&projectId=${reportFilterProjectId}`; 
     }
     if (reportFilterTeamId) {
-      reportUrl += `&teamId=${reportFilterTeamId}`;
+      reportUrl += `&teamId=${reportFilterTeamId}`; 
     }
-let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate';
+    if (reportFilterCollaboratorId) { // Add this block
+      reportUrl += `&userId=${reportFilterCollaboratorId}`;
+    }
+
+  let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate';
     const overallCompletionParams = new URLSearchParams();
-    // Assuming you want to apply the same date range from the main report filter
+    
     if (reportStartDate && reportEndDate) {
       overallCompletionParams.append('startDate', reportStartDate.toISOString().split('T')[0]);
       overallCompletionParams.append('endDate', reportEndDate.toISOString().split('T')[0]);
@@ -330,12 +337,18 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
     if (reportFilterProjectId) {
       overallCompletionParams.append('projectId', reportFilterProjectId.toString());
     }
-    if (reportFilterTeamId) {
+   if (reportFilterTeamId) { 
       overallCompletionParams.append('teamId', reportFilterTeamId.toString());
+    }
+    if (reportFilterCollaboratorId) { 
+      overallCompletionParams.append('userId', reportFilterCollaboratorId.toString());
     }
     if (overallCompletionParams.toString()) {
       overallCompletionUrl += `?${overallCompletionParams.toString()}`;
     }
+
+
+
     await Promise.all([
       fetchEndpoint('http://localhost:3001/tasks/overview', setOverview, 'Failed to load task overview'),
       fetchEndpoint('http://localhost:3001/tasks/reports/overdue', (response) => {
@@ -343,7 +356,6 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
         setOverdueTasksTotal(response.total || 0);
       }, 'Failed to load overdue tasks'),
       fetchEndpoint('http://localhost:3001/tasks/projects', setProjects, 'Failed to load projects'),
-      fetchEndpoint(reportUrl, setCurrentReport, 'Failed to load report'),
       fetchEndpoint(workloadUrl, setWorkloadDistribution, 'Failed to load workload distribution'),
       fetchEndpoint(totalHoursUrl, setTotalHoursPerUser, 'Failed to load total hours per user'),
       fetchEndpoint(recentTasksUrl, setRecentTasks, 'Failed to load recent tasks'),
@@ -352,6 +364,7 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
       fetchEndpoint(prioritySummaryUrl, setPrioritySummary, 'Failed to load priority summary'),
       fetchEndpoint('http://localhost:3001/tasks/nearing-deadline', setTasksNearingDeadline, 'Failed to load tasks nearing deadline'),
       fetchEndpoint('http://localhost:3001/tasks/manager/team-overview', setManagerTeamOverview, 'Failed to load manager team overview'),
+      fetchEndpoint(reportUrl, setCurrentReport, 'Failed to load report'),
     ]);
     if (fetchErrors.length > 0) {
       setError(`Some dashboard data could not be loaded: ${fetchErrors.join('; ')}. Please ensure your backend is running and all endpoints are accessible.`);
@@ -361,6 +374,8 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
     reportFilterProjectId,
     reportFilterTeamId,
     reportStartDate,
+        reportFilterCollaboratorId,
+
     reportEndDate,
     recentTasksProjectId,
     pendingTasksFilterProjectId,
@@ -376,6 +391,8 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
     workloadFilterProjectId,
     workloadFilterTeamId,
     hoursFilterProjectId,
+        reportFilterCollaboratorId, 
+
     hoursFilterTeamId
   ]);
   useEffect(() => {
@@ -389,6 +406,18 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
       fetchData();
     }
   }, [loading, user, fetchData, workloadDateRange, hoursDateRange]);
+    useEffect(() => {
+  if (reportFilterTeamId) {
+    setReportFilterCollaboratorId(undefined); 
+  }
+}, [reportFilterTeamId]);
+
+useEffect(() => {
+  if (reportFilterCollaboratorId) {
+    setReportFilterTeamId(undefined);  
+  }
+}, [reportFilterCollaboratorId]);
+
   const priorityChartData = {
     labels: prioritySummary.map(p => p.priority),
     datasets: [{
@@ -406,33 +435,7 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
       borderWidth: 1,
     }],
   };
-  const priorityChartOptions = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: 'right' as const,
-        labels: {
-          font: {
-            size: 14,
-            family: 'Inter, sans-serif'
-          }
-        }
-      },
-      title: {
-        display: true,
-        text: 'Task Priority Breakdown',
-        font: {
-          size: 20,
-          family: 'Inter, sans-serif'
-        }
-      },
-      tooltip: {
-        backgroundColor: 'rgba(55, 48, 163, 0.9)',
-        titleFont: { size: 14 },
-        bodyFont: { size: 12 },
-      },
-    },
-  };
+
   const workloadChartData = {
     labels: workloadDistribution.map(d => d.username),
     datasets: [
@@ -509,6 +512,8 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
     if (reportFilterProjectId) {
       downloadUrl += `&projectId=${reportFilterProjectId}`;
     }
+    if (reportFilterCollaboratorId) {
+  downloadUrl += `&userId=${reportFilterCollaboratorId}`; }
     if (reportFilterTeamId) {
       downloadUrl += `&teamId=${reportFilterTeamId}`;
     }
@@ -754,7 +759,7 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
                   </div>
                 </div>
                 <p className="text-center text-lg">
-                  Completed: <span className="font-extrabold">{overallCompletion?.completedTasks || 0}</span> /{' '} 
+                  Completed: <span className="font-extrabold">{currentReport?.completedTasks || 0}</span> /{' '} 
                   <span className="font-extrabold">{overallCompletion?.totalTasks || 0}</span> Tasks 
                 </p>
                 <h3 className="text-xl font-bold mt-4">Current Report</h3>
@@ -819,7 +824,24 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
                       })
                     }
                   </select>
+  <label className="label">
+            <span className="label-text text-white dark:text-gray-100">Filter by Collaborator</span>
+          </label>
+          <select
+            className="select select-bordered w-full rounded-lg text-gray-900 dark:text-gray-100 dark:bg-gray-800 bg-white"
+            value={reportFilterCollaboratorId || ''}
+            onChange={(e) => setReportFilterCollaboratorId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+          >
+            <option value="">All Collaborators</option>
+            {collaborators.map(collaborator => (
+              <option key={collaborator.id} value={collaborator.id}>
+                {collaborator.username}
+              </option>
+            ))}
+          </select>
+
                 </div>
+                
 
                 <div className="card-actions justify-end mt-6"> 
                   <button
@@ -928,9 +950,9 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
                   </ul>
                 )}
                 <div className="card-actions justify-end mt-6">
-                  <a href="/tasks/recent" className="btn btn-primary rounded-full shadow-md hover:shadow-lg">
+                    <Link href="/recentTasks" className="btn btn-primary rounded-full shadow-md hover:shadow-lg">
                     View Recent Tasks 
-                  </a>
+                    </Link>
                 </div>
               </div>
             </div>
@@ -978,13 +1000,13 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
                     )}
                   </ul> 
                 )}
-                <div className="card-actions justify-end mt-6">
-                  <a
-                    href="/tasks/pending"
-                    className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-amber-600 dark:hover:text-amber-600 rounded-full"
+             <div className="card-actions justify-end mt-6">
+                  <Link
+                  href="/viewApproval"
+                  className="btn btn-outline btn-primary text-white dark:text-gray-100 border-white/80 hover:bg-white hover:text-amber-600 dark:hover:text-amber-600 rounded-full"
                   >
-                    View Pending
-                  </a>
+                  View Approval
+                  </Link>
                 </div>
               </div> 
             </div>
@@ -1298,53 +1320,6 @@ let overallCompletionUrl = 'http://localhost:3001/progress/task-completion-rate'
             </div>
           </div>
 
-          <div className="card bg-white dark:bg-gray-800 shadow-2xl rounded-2xl p-6 hover:shadow-3xl transition-all duration-300 transform hover:-translate-y-1">
-            <div className="card-body">
-              <h2 className="card-title text-2xl font-extrabold text-gray-900 dark:text-gray-100 mb-4">Task Priority Breakdown</h2>
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Project</span>
-                </label> 
-                <select
-                  className="select select-bordered w-full rounded-lg"
-                  value={priorityFilterProjectId || ''} 
-                  onChange={(e) => setPriorityFilterProjectId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                >
-                  <option value="">All Projects</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.id}> 
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text text-gray-700 dark:text-gray-300">Filter by Team</span>
-                </label>
-                <select
-                  className="select select-bordered w-full rounded-lg"
-                  value={priorityFilterTeamId || ''}
-                  onChange={(e) => setPriorityFilterTeamId(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                >
-                  <option value="">All Teams</option>
-                  {managerTeamOverview?.teamStatusSummaries && Array.from(new Set(managerTeamOverview.teamStatusSummaries.map(s => JSON.stringify({ id: s.teamId, name: s.teamName }))))
-                      .map(teamStr => {
-                        const team = JSON.parse(teamStr);
-                        return <option key={team.id} value={team.id}>{team.name}</option>;
-                      })
-                    }
-                </select>
-              </div>
-              {prioritySummary.length === 0 ? (
-                <p className="text-lg italic text-gray-500 dark:text-gray-400 mt-4">No priority data available for these filters.</p>
-              ) : (
-                <div className="h-64 w-full flex justify-center">
-                  <Pie data={priorityChartData} options={priorityChartOptions} />
-                </div>
-              )}
-            </div>
-          </div>
 
           {isCreateTaskModalOpen && (
             <dialog id="create_task_modal" className="modal modal-open">

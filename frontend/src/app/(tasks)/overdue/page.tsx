@@ -6,6 +6,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import Link from 'next/link';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import ChatWidget from '@/components/RealtimeChatSystem';
 
 interface OverdueTaskDto {
   id: number;
@@ -442,6 +443,12 @@ export default function OverdueTasksPage() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-700 p-6 md:p-10 font-sans antialiased">
       <TopBar />
 
+    <div className="p-6 max-w-xl mx-auto">
+        <div>
+        <ChatWidget />
+            </div>
+   
+    </div>
       {feedback && (
         <div role="alert" className="alert alert-success mb-6 rounded-xl shadow-md animate-fade-in">
           <svg
@@ -608,11 +615,15 @@ export default function OverdueTasksPage() {
                 <tbody>
                   {overdueTasks.map((task) => (
                     <tr key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
-                      <td className="font-medium text-gray-900 dark:text-gray-100">
-                        <Link href={`/tasks/task/${task.id}`} className="hover:underline">
+                        <td className="font-medium text-gray-900 dark:text-gray-100">
+                        <button
+                          className="hover:underline text-left"
+                          onClick={() => fetchTaskDetails(task.id)}
+                          type="button"
+                        >
                           {task.title}
-                        </Link>
-                      </td>
+                        </button>
+                        </td>
                       <td className="text-gray-900 dark:text-gray-100">{task.assigneeUsername || 'Unassigned'}</td>
                       <td className="text-gray-900 dark:text-gray-100">
                         {new Date(task.dueDate).toLocaleDateString()}

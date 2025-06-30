@@ -1,70 +1,104 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Socket } from 'socket.io';
 import * as cookie from 'cookie';
-import { UserService } from 'src/user/user.service';
-import { AuthService } from 'src/auth/auth.service';
+import { UserService } from '../user/user.service';
+import { AuthService } from './auth.service';
 
 @Injectable()
 export class WsJwtGuard implements CanActivate {
   constructor(
-    private jwtService: JwtService,
-    private userService: UserService,
-    private authService: AuthService,
-  ) {}
+    private readonly jwtService: JwtService,
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {
+    console.log('🛠️ [WsJwtGuard] Constructor called with dependencies:', {
+      jwtService: !!jwtService,
+      userService: !!userService,
+      authService: !!authService,
+    });
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    console.log('WsJwtGuard invoked');
+    console.log('🛡️ [WsJwtGuard] Guard activated');
     const client: Socket = context.switchToWs().getClient<Socket>();
-    const headers = client.handshake.headers;
 
-    let token: string | undefined;
-    if (headers.cookie) {
-      const parsedCookies = cookie.parse(headers.cookie);
-      token = parsedCookies['accessToken']; 
-    }
-    if (!token && client.handshake.auth?.token && typeof client.handshake.auth.token === 'string') {
-      token = client.handshake.auth.token;
-    }
-    if (!token && client.handshake.headers?.authorization?.startsWith('Bearer ')) {
-      token = client.handshake.headers.authorization.split(' ')[1];
-    }
+    const user = await extractUserFromSocket(
+      client,
+      this.jwtService,
+      this.authService,
+      this.userService,
+    );
 
-    if (!token) {
-      console.warn(`[WsJwtGuard] No token found for client ${client.id}`);
-      throw new UnauthorizedException('No authentication token provided.');
-    }
+    client.data.user = user;
 
-    if (await this.authService.isTokenBlacklisted(token)) {
-      console.warn(`[WsJwtGuard] Token is blacklisted for client ${client.id}`);
-      throw new UnauthorizedException('Token is blacklisted.');
-    }
-
-    try {
-      const payload: any = this.jwtService.verify(token, { secret: 'mysecretkey' });
-      if (!payload.sub || !payload.email || !payload.role) {
-        console.warn(`[WsJwtGuard] Invalid token payload for client ${client.id}:`, payload);
-        throw new UnauthorizedException('Invalid token payload.');
-      }
-
-      const user = await this.userService.findById(payload.sub);
-      console.log('User from DB in WsJwtGuard:', user);
-      if (!user || !user.isVerified) {
-        console.warn(`[WsJwtGuard] User not found or not verified for payload sub: ${payload.sub}`);
-        throw new UnauthorizedException('User not found or not verified.');
-      }
-
-      client.data.user = { // Use client.data.user for GetUserWs
-        id: user.id,
-        email: user.email,
-        username: user.username || 'unknown',
-        role: user.role?.name?.toUpperCase() || payload.role.toUpperCase(),
-      };
-      console.log(`[WsJwtGuard] Client ${client.id} authenticated as ${user.username}`);
-      return true;
-    } catch (e) {
-      console.error(`[WsJwtGuard] Token validation failed for client ${client.id}: ${e.message}`);
-      throw new UnauthorizedException('Invalid or expired token.');
-    }
+    console.log(`✅ [WsJwtGuard] Client ${client.id} authenticated as ${user.username}`);
+    return true;
   }
+}
+
+// ✅ SHARED FUNCTION TO REUSE IN handleConnection
+export async function extractUserFromSocket(
+  client: Socket,
+  jwtService: JwtService,
+  authService: AuthService,
+  userService: UserService,
+): Promise<any> {
+  const headers = client.handshake.headers;
+  const authToken = client.handshake.auth?.token;
+
+  console.log('📥 [extractUserFromSocket] Headers:', headers);
+  console.log('📥 [extractUserFromSocket] Cookie:', headers.cookie);
+  console.log('📥 [extractUserFromSocket] Auth field:', authToken);
+  console.log('📥 [extractUserFromSocket] Authorization header:', headers.authorization);
+
+  let token: string | undefined;
+
+  if (authToken && typeof authToken === 'string') {
+    token = authToken;
+    console.log('🔐 [extractUserFromSocket] Token from auth field:', token);
+  } else if (headers.cookie) {
+    const parsedCookies = cookie.parse(headers.cookie);
+    token = parsedCookies['accessToken'];
+    console.log('🍪 [extractUserFromSocket] Token from cookie:', token);
+  } else if (headers.authorization?.startsWith('Bearer ')) {
+    token = headers.authorization.split(' ')[1];
+    console.log('🔐 [extractUserFromSocket] Token from Authorization header:', token);
+  }
+
+  if (!token) {
+    console.warn(`❌ [extractUserFromSocket] No token found for client ${client.id}`);
+    throw new UnauthorizedException('No authentication token provided.');
+  }
+
+  const isBlacklisted = await authService.isTokenBlacklisted(token);
+  if (isBlacklisted) {
+    console.warn(`❌ [extractUserFromSocket] Token is blacklisted for client ${client.id}`);
+    throw new UnauthorizedException('Token is blacklisted.');
+  }
+
+  const payload = jwtService.verify(token, { secret: 'mysecretkey' });
+
+  if (!payload.sub || !payload.email || !payload.role) {
+    console.warn(`❌ [extractUserFromSocket] Invalid token payload:`, payload);
+    throw new UnauthorizedException('Invalid token payload.');
+  }
+
+  const user = await userService.findById(payload.sub);
+  if (!user || !user.isVerified || !user.username) {
+    console.warn(`❌ [extractUserFromSocket] Invalid user`);
+    throw new UnauthorizedException('Invalid user account.');
+  }
+
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role?.name?.toUpperCase() || payload.role.toUpperCase(),
+  };
 }

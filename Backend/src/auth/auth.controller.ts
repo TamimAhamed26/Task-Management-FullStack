@@ -22,6 +22,7 @@ import { Request, Response } from 'express';
 import { TokenType } from 'src/entities/token.entity';
 import { Public } from './decorators/public.decorator';
 import { GetUser } from './decorators/get-user.decorator';
+import { User } from 'src/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -60,9 +61,6 @@ async login(@Body() dto: LoginDto & { rememberMe?: boolean }, @Res({ passthrough
   return result;
 }
 
-
-
-
   @Public()
   @Get('verify/:token')
   verify(@Param('token') token: string) {
@@ -95,17 +93,19 @@ async getResetTokenMessage(@Param('token') token: string) {
   }
 }
 
-
 @Get('status')
 getStatus(@Req() req: Request) {
+  const tokenFromCookie = req.cookies?.accessToken;
   console.log('Token Status:', req.tokenStatus);
   console.log('New Access Token (if refreshed):', req.newAccessToken);
+  console.log('Access Token from cookie:', tokenFromCookie);
 
   return {
     tokenStatus: req.tokenStatus || 'valid',
     newAccessToken: req.newAccessToken || null,
+    accessToken: tokenFromCookie || null, 
   };
-} 
+}
 
 
 @Public()
@@ -131,6 +131,34 @@ async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
   const user = req.user as any;
   return await this.authService.logout(user.id, token, res);
 }
+ @Public()
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth(@Req() req) {
+  }
 
+@Public()
+@Get('google/callback')
+@UseGuards(AuthGuard('google'))
+async googleAuthCallback(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  const user = req.user as User;
+
+  if (user.role) {
+    const result = await this.authService.loginSocial(user);
+
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: false, 
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    });
+    return res.redirect('http://localhost:3000/dashboard');
+
+  } else {
+
+    return res.redirect('http://localhost:3000/pending-approval');
+  }
+
+}
 
 }

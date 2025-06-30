@@ -46,8 +46,8 @@ id: number;
   @Column({ nullable: true })
   lastActiveAt?: Date;
 
-@OneToMany(() => Notification, notification => notification.recipient)
-notifications: Notification[];
+  @OneToMany(() => Notification, notification => notification.recipient)
+  notifications: Notification[];
   @OneToMany(() => Project, project => project.owner)
   ownedProjects: Project[];
 
@@ -59,7 +59,8 @@ notifications: Notification[];
 
   @OneToMany(() => ConversationParticipant, participant => participant.user)
   conversationParticipants: ConversationParticipant[];
-
+  @Column({ type: 'varchar', unique: true, nullable: true, default: null })
+  googleId: string | null;
 }
 
 export { Role };

@@ -187,20 +187,19 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
   ): Promise<TotalHoursPerTaskDto> {
     return this.progressService.getTotalHoursPerTask(taskId);
   }
-
-
- @Get('custom-report')
+@Get('custom-report')
   @Roles('MANAGER')
   async getCustomReport(
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
-    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, // Add projectId
-    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,      // Add teamId
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,
+    @Query('userId', new ParseIntPipe({ optional: true })) userId?: number,
   ): Promise<ProgressReportDto> {
     if (!startDate || !endDate) {
-      throw new BadRequestException('Start date and end date are required.'); 
+      throw new BadRequestException('Start date and end date are required.');
     }
-    return this.progressService.generateCustomReport(startDate, endDate, projectId, teamId);
+    return this.progressService.generateCustomReport(startDate, endDate, projectId, teamId, userId);
   }
 
   @Get('download-custom-report-pdf')
@@ -209,16 +208,16 @@ async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
     @Res() res: Response,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
-    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number, // Add projectId
-    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,      // Add teamId
+    @Query('projectId', new ParseIntPipe({ optional: true })) projectId?: number,
+    @Query('teamId', new ParseIntPipe({ optional: true })) teamId?: number,
+    @Query('userId', new ParseIntPipe({ optional: true })) userId?: number,
   ) {
-    const pdfBuffer = await this.progressService.generateCustomReportPDF(startDate, endDate, projectId, teamId); 
+    const pdfBuffer = await this.progressService.generateCustomReportPDF(startDate, endDate, projectId, teamId, userId);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename=custom_report_${startDate}_to_${endDate}.pdf`,
       'Content-Length': pdfBuffer.length,
     });
-
     res.send(pdfBuffer);
   }
 }

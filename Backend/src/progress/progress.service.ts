@@ -223,60 +223,81 @@ async generateWeeklyReportPDF(): Promise<Buffer> {
 
   return finalBuffer;
 }
+// apps/api/src/progress/progress.service.ts
+
 async getTaskCompletionRate(
-    startDate?: string,
-    endDate?: string,
-    username?: string,
-    userId?: number,
-    projectId?: number, 
-    teamId?: number,    
-  ): Promise<TaskCompletionRateDto> {
-    const query = this.taskRepository.createQueryBuilder('task')
-      .leftJoin('task.assignedTo', 'user')
-      .leftJoin('task.project', 'project') 
-      .leftJoin('project.teams', 'team'); 
+  startDate?: string,
+  endDate?: string,
+  username?: string,
+  userId?: number,
+  projectId?: number,
+  teamId?: number,
+): Promise<TaskCompletionRateDto> {
+  // Start the base query for tasks
+  const query = this.taskRepository.createQueryBuilder('task');
 
-    if (startDate && endDate) {
-      if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
-        throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
-      }
-      const endDateAdjusted = new Date(endDate);
-      endDateAdjusted.setHours(23, 59, 59, 999);
-      query.where('task.createdAt BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate: endDateAdjusted.toISOString(),
-      });
+  // Apply all filters EXCEPT for teamId
+  if (startDate && endDate) {
+    if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+      throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
     }
-
-    if (username && userId) {
-      throw new BadRequestException('Provide either username or userId, not both.');
-    }
-
-    if (username) {
-      query.andWhere('user.username = :username', { username });
-    } else if (userId) {
-      query.andWhere('user.id = :userId', { userId });
-    }
-
-    if (projectId) { // Add projectId filter
-        query.andWhere('task.projectId = :projectId', { projectId });
-    }
-
-    if (teamId) { // Add teamId filter
-        query.andWhere('team.id = :teamId', { teamId });
-    }
-
-    const totalTasks = await query.getCount();
-    const completedTasks = await query
-      .andWhere('task.status = :status', { status: TaskStatus.COMPLETED })
-      .getCount();
-    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-    return {
-      completionRate: parseFloat(completionRate.toFixed(2)),
-      completedTasks,
-      totalTasks,
-    };
+    const endDateAdjusted = new Date(endDate);
+    endDateAdjusted.setHours(23, 59, 59, 999);
+    query.where('task.createdAt BETWEEN :startDate AND :endDate', {
+      startDate,
+      endDate: endDateAdjusted.toISOString(),
+    });
   }
+
+  if (username && userId) {
+    throw new BadRequestException('Provide either username or userId, not both.');
+  } else if (username) {
+    // Join to user only if needed
+    query.leftJoin('task.assignedTo', 'user').andWhere('user.username = :username', { username });
+  } else if (userId) {
+    // We can filter by the ID directly without a join
+    query.andWhere('task.assignedToId = :userId', { userId });
+  }
+
+  if (projectId) {
+    query.andWhere('task.projectId = :projectId', { projectId });
+  }
+
+  // --- Start of the Robust Team Filtering Logic ---
+  if (teamId) {
+    // Step 1: Create a separate, simple query to get all project IDs for the given team.
+    const projectIdsForTeamQuery = this.projectRepository.createQueryBuilder('project')
+      .innerJoin('project.teams', 'team', 'team.id = :teamId', { teamId })
+      .select('project.id');
+      
+    const projectIds = await projectIdsForTeamQuery.getRawMany().then(results => results.map(r => r.project_id));
+
+    // If the team has no projects, then no tasks can match. Return zero.
+    if (projectIds.length === 0) {
+      return { completionRate: 0, completedTasks: 0, totalTasks: 0 };
+    }
+
+    // Step 2: Use the retrieved project IDs to filter the main task query.
+    // This is a simple and highly efficient 'WHERE IN' clause.
+    query.andWhere('task.projectId IN (:...projectIds)', { projectIds });
+  }
+  // --- End of the Robust Team Filtering Logic ---
+
+  // Now that the query is correctly filtered, get the counts.
+  const totalTasks = await query.getCount();
+  
+  const completedTasks = await query
+    .andWhere('task.status = :status', { status: TaskStatus.COMPLETED })
+    .getCount();
+    
+  const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+  
+  return {
+    completionRate: parseFloat(completionRate.toFixed(2)),
+    completedTasks,
+    totalTasks,
+  };
+}
 
   async getAverageCompletionTime(
     startDate?: string,
@@ -588,110 +609,139 @@ async getTotalHoursPerUser(
       totalHours: parseFloat(totalHours.toFixed(2)),
     };
   }
-
 async generateCustomReport(
-  startDate: string,
-  endDate: string,
-  projectId?: number, // Add projectId
-  teamId?: number,    // Add teamId
-): Promise<ProgressReportDto> {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+    startDate: string,
+    endDate: string,
+    projectId?: number,
+    teamId?: number,
+    userId?: number,
+  ): Promise<ProgressReportDto> {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
 
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-    throw new BadRequestException('Invalid date format. Use ISO format (YYYY-MM-DD).'); 
-  }
-
-  if (start > end) {
-    throw new BadRequestException('Start date must be before end date.'); 
-  }
-
-  // Ensure end date includes the full day
-  end.setHours(23, 59, 59, 999); 
-
-  const query = this.taskRepository.createQueryBuilder('task')
-    .where('task.createdAt BETWEEN :start AND :end', { start, end });
-
-  if (projectId) {
-    query.andWhere('task.projectId = :projectId', { projectId });
-  }
-
-  if (teamId) {
-    // You'll need to join with project_teams_team and team entities
-    query.leftJoin('task.project', 'project')
-         .leftJoin('project.teams', 'team')
-         .andWhere('team.id = :teamId', { teamId });
-  }
-
-  const tasks = await query.getMany(); // Use getMany() instead of find() for query builder 
-
-  const completedTasks = tasks.filter(task => task.status === TaskStatus.COMPLETED).length; 
-  const pendingTasks = tasks.length - completedTasks; 
-  const completionPercentage = tasks.length === 0 ? 0 : (completedTasks / tasks.length) * 100; 
-
-  const graphData: { date: string; completed: number }[] = []; 
-  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)); 
-  for (let i = daysDiff - 1; i >= 0; i--) {
-    const day = new Date(end); 
-    day.setDate(end.getDate() - i); 
-    const dayStr = day.toISOString().split('T')[0];
-
-    const completedOnDay = tasks.filter(task =>
-      task.status === TaskStatus.COMPLETED &&
-      task.updatedAt.toISOString().split('T')[0] === dayStr
-    ).length; 
-    graphData.push({ date: dayStr, completed: completedOnDay }); 
-  }
-
-  return {
-    completedTasks,
-    pendingTasks,
-    completionPercentage: Number(completionPercentage.toFixed(2)),
-    weeklyGraphData: graphData,
-  };
-}
-
-async generateCustomReportPDF(
-  startDate: string,
-  endDate: string,
-  projectId?: number, // Add projectId
-  teamId?: number,    // Add teamId
-): Promise<Buffer> {
-  const report = await this.generateCustomReport(startDate, endDate, projectId, teamId); // Pass filters 
-
-  const doc = new PDFDocument(); 
-  const buffers: Uint8Array[] = []; 
-
-  doc.on('data', buffers.push.bind(buffers)); 
-  doc.on('end', () => {}); 
-
-  doc.fontSize(18).text('Custom Progress Report', { align: 'center' }); 
-  doc.moveDown(); 
-  doc.fontSize(12).text(`Date Range: ${startDate} to ${endDate}`); 
-  doc.text(`Completed Tasks: ${report.completedTasks}`); 
-  doc.text(`Pending Tasks: ${report.pendingTasks}`); 
-  doc.text(`Completion Percentage: ${report.completionPercentage}%`); 
-  doc.moveDown(); 
-  const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify({
-    type: 'bar',
-    data: {
-      labels: report.weeklyGraphData.map(d => d.date),
-      datasets: [{
-        label: 'Completed Tasks',
-        data: report.weeklyGraphData.map(d => d.completed),
-        backgroundColor: 'blue'
-      }]
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid date format. Use ISO format (YYYY-MM-DD).');
     }
-  }))}`; 
-  const response = await axios.get(chartUrl, { responseType: 'arraybuffer' }); 
-  const chartImage = Buffer.from(response.data as ArrayBuffer);
-  doc.image(chartImage, { fit: [500, 300], align: 'center', valign: 'center' }); 
 
-  doc.end(); 
-  return new Promise<Buffer>((resolve) => {
-    doc.on('end', () => {
-      resolve(Buffer.concat(buffers));
-    });
-  });
-}
+    if (start > end) {
+      throw new BadRequestException('Start date must be before end date.');
+    }
+
+    end.setHours(23, 59, 59, 999);
+
+    const query = this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoin('task.assignedTo', 'user')
+      .where('task.createdAt BETWEEN :start AND :end', { start, end });
+
+    if (projectId) {
+      query.andWhere('task.projectId = :projectId', { projectId });
+    }
+
+    if (teamId) {
+      query
+        .innerJoin('task.project', 'project')
+        .innerJoin('project.teams', 'team')
+        .andWhere('team.id = :teamId', { teamId });
+    }
+
+    if (userId) {
+      query.andWhere('user.id = :userId', { userId });
+    }
+
+    const tasks = await query.getMany();
+
+    const completedTasks = tasks.filter(task => task.status === TaskStatus.COMPLETED).length;
+    const pendingTasks = tasks.length - completedTasks;
+    const completionPercentage = tasks.length === 0 ? 0 : (completedTasks / tasks.length) * 100;
+
+    const graphData: { date: string; completed: number }[] = [];
+    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24));
+
+    for (let i = daysDiff - 1; i >= 0; i--) {
+      const day = new Date(end);
+      day.setDate(end.getDate() - i);
+      const dayStr = day.toISOString().split('T')[0];
+      const completedOnDay = tasks.filter(
+        task =>
+          task.status === TaskStatus.COMPLETED &&
+          task.updatedAt.toISOString().split('T')[0] === dayStr,
+      ).length;
+      graphData.push({ date: dayStr, completed: completedOnDay });
+    }
+
+    const report = {
+      completedTasks,
+      pendingTasks,
+      completionPercentage: Number(completionPercentage.toFixed(2)),
+      weeklyGraphData: graphData,
+    };
+
+    return report;
   }
+
+  async generateCustomReportPDF(
+    startDate: string,
+    endDate: string,
+    projectId?: number,
+    teamId?: number,
+    userId?: number,
+  ): Promise<Buffer> {
+    const report = await this.generateCustomReport(startDate, endDate, projectId, teamId, userId);
+
+    const doc = new PDFDocument();
+    const buffers: Uint8Array[] = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+
+    doc.fontSize(18).text('Custom Progress Report', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Date Range: ${startDate} to ${endDate}`);
+
+    if (userId) {
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (user) doc.text(`Collaborator: ${user.username}`);
+    }
+    if (projectId) {
+      const project = await this.projectRepository.findOne({ where: { id: projectId } });
+      if (project) doc.text(`Project: ${project.name}`);
+    }
+    if (teamId) {
+      const team = await this.teamRepository.findOne({ where: { id: teamId } });
+      if (team) doc.text(`Team: ${team.name}`);
+    }
+
+    doc.text(`Completed Tasks: ${report.completedTasks}`);
+    doc.text(`Pending Tasks: ${report.pendingTasks}`);
+    doc.text(`Completion Percentage: ${report.completionPercentage}%`);
+    doc.moveDown();
+
+    const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(
+      JSON.stringify({
+        type: 'bar',
+        data: {
+          labels: report.weeklyGraphData.map(d => d.date),
+          datasets: [
+            {
+              label: 'Completed Tasks',
+              data: report.weeklyGraphData.map(d => d.completed),
+              backgroundColor: 'blue',
+            },
+          ],
+        },
+      }),
+    )}`;
+
+    const response = await axios.get(chartUrl, { responseType: 'arraybuffer' });
+    const chartImage = Buffer.from(response.data as ArrayBuffer);
+    doc.image(chartImage, { fit: [500, 300], align: 'center', valign: 'center' });
+
+    doc.end();
+
+    return new Promise<Buffer>((resolve) => {
+      doc.on('end', () => {
+        resolve(Buffer.concat(buffers));
+      });
+    });
+  }
+}

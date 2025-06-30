@@ -70,7 +70,7 @@ export class TaskService {
     if (!user) throw new NotFoundException('User not found');
 
     const history = this.taskHistoryRepository.create({
-      taskId: task.id, // Use taskId directly
+      taskId: task.id, 
       changedBy: user,
       action,
       details,
@@ -93,7 +93,6 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
 
   const { title, description, deadline, priority, assignedToId, parentTaskId, projectId } = createTaskDto;
 
-  // Validate assignedToId is a Collaborator
   if (assignedToId) {
     const assignee = await this.userRepository.findOne({
       where: { id: assignedToId },
@@ -104,7 +103,6 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     }
   }
 
-  // Validate parentTaskId
   if (parentTaskId) {
     const parentTask = await this.taskRepository.findOne({ where: { id: parentTaskId } });
     if (!parentTask) {
@@ -112,13 +110,11 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
     }
   }
 
-  // Validate projectId
   const project = await this.projectRepository.findOne({ where: { id: projectId } });
   if (!project) {
     throw new NotFoundException('Project not found');
   }
 
-  // Map TaskPriority to PriorityLevel
   const priorityMap: { [key in TaskPriority]: PriorityLevel } = {
     [TaskPriority.LOW]: PriorityLevel.LOW,
     [TaskPriority.MEDIUM]: PriorityLevel.MEDIUM,
@@ -142,14 +138,12 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
 
   const savedTask: Task = await this.taskRepository.save(task);
 
-  // Log task creation in history
   await this.logTaskHistory(savedTask, userId, 'Task Created', {
     title: savedTask.title,
     assignedToId: savedTask.assignedTo?.id,
     projectId: savedTask.projectId,
   });
 
-  // Create notification for assignee, if assigned
   if (assignedToId) {
     const notification = this.notificationRepository.create({
       notificationType: 'TASK_ASSIGNED',
@@ -203,7 +197,6 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
 
     const newStatus: TaskStatus = updateTaskStatusDto.status;
 
-    // Only Managers can set APPROVED or COMPLETED status
     if (
       (newStatus === TaskStatus.APPROVED || newStatus === TaskStatus.COMPLETED) &&
       user.role.name !== 'Manager'
@@ -211,25 +204,22 @@ async createTask(createTaskDto: CreateTaskDto, userId: number): Promise<TaskDto>
       throw new ForbiddenException('Only Managers can approve or complete tasks');
     }
 
-    // Ensure task is in PENDING_APPROVAL before transitioning to APPROVED/COMPLETED
     if (newStatus === TaskStatus.APPROVED && task.status !== TaskStatus.PENDING_APPROVAL) {
       throw new BadRequestException('Task must be in PENDING_APPROVAL to be approved');
     }
 
     const oldStatus: TaskStatus = task.status;
 
-    // Update status: If APPROVED is requested, set to COMPLETED
     task.status = newStatus === TaskStatus.APPROVED ? TaskStatus.COMPLETED : newStatus;
 
-    // Manage approvedBy and isCompleted
     if (newStatus === TaskStatus.APPROVED) {
       task.approvedBy = user;
-      task.isCompleted = true; // Set isCompleted to true for COMPLETED
+      task.isCompleted = true; 
     } else if (oldStatus === TaskStatus.COMPLETED) {
-      task.approvedBy = null; // Revert approval if status changes from COMPLETED
-      task.isCompleted = false; // Revert isCompleted if no longer COMPLETED
+      task.approvedBy = null; 
+      task.isCompleted = false; 
     } else {
-      task.isCompleted = newStatus === TaskStatus.COMPLETED; // Handle direct COMPLETED status
+      task.isCompleted = newStatus === TaskStatus.COMPLETED; 
     }
 
     const savedTask = await this.taskRepository.save(task);
@@ -1523,7 +1513,7 @@ async getManagerTeamOverview(userId: number, projectId?: number): Promise<Manage
     teamCompletionRates,
   };
 }
-  // NEW: Method to get tasks nearing deadline
+
   async getTasksNearingDeadline(): Promise<TaskDto[]> {
     const today = new Date();
     const threeDaysFromNow = new Date();
@@ -1533,11 +1523,11 @@ async getManagerTeamOverview(userId: number, projectId?: number): Promise<Manage
       where: {
         dueDate: Between(today, threeDaysFromNow),
         isCompleted: false,
-        status: Not(TaskStatus.COMPLETED), // Exclude already completed tasks
+        status: Not(TaskStatus.COMPLETED),
       },
       relations: ['assignedTo', 'project'],
       order: { dueDate: 'ASC' },
-      take: 10, // Limit to 10 tasks for the dashboard widget
+      take: 10, 
     });
 
     return tasks.map(task => ({
