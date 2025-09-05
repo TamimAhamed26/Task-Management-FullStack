@@ -1,98 +1,92 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+Task Management System - Backend
+A comprehensive enterprise-level task management backend API built with NestJS and PostgreSQL. This system provides advanced features for project management, team collaboration, real-time communication, analytics, and integrated payment processing.
+🚀 Features
+🔐 Authentication & Authorization
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+JWT Authentication with automatic token refresh
+Google OAuth Integration for social login
+Email Verification system with resend capability
+Password Reset functionality with secure token validation
+Remember Me functionality with extended sessions
+Role-based Access Control (Manager, Collaborator, Admin)
+Session Management with automatic logout on inactivity
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+📋 Task Management
 
-## Description
+Complete CRUD Operations for tasks
+Task Status Management (Todo, In Progress, Completed, Pending Approval, Rejected)
+Priority Levels (High, Medium, Low) with sorting
+Task Assignment to collaborators
+Deadline Management with overdue tracking
+Task Search & Filtering with advanced queries
+Task Comments with threaded/nested replies
+File Attachments for tasks
+Task History - complete audit trail
+Time Logging - track time spent on tasks
+Task Notifications with read/unread status
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+👥 Project & Team Management
 
-## Project setup
+Project Creation and management
+Team Management within projects
+Dynamic Team Assignment to projects
+Member Management - add/remove team members
+Project-based Task Filtering
+Team Performance Overview
 
-```bash
-$ npm install
-```
+💬 Real-time Chat System
 
-## Compile and run the project
+Direct Messaging between users
+Group Conversations for team collaboration
+Message History with pagination
+Read Receipts and message status
+WebSocket Integration for real-time updates
+Available Users listing
 
-```bash
-# development
-$ npm run start
+📊 Advanced Analytics & Reporting
 
-# watch mode
-$ npm run start:dev
+Weekly/Monthly Reports with PDF generation
+Custom Reports with flexible date ranges
+Task Completion Rate analytics
+Average Completion Time metrics
+Workload Distribution analysis
+Total Hours Tracking per user/task
+Task Priority Summary breakdowns
+Overdue Tasks Reports
+Manager Dashboard with comprehensive metrics
 
-# production mode
-$ npm run start:prod
-```
+💳 Payment Integration
 
-## Run tests
+Stripe Integration for bonus payments
+Payment Processing for task completion bonuses
+Payment Status Tracking
+Secure Payment Method Updates
+Payment Confirmation Handling
 
-```bash
-# unit tests
-$ npm run test
+📁 File Management
 
-# e2e tests
-$ npm run test:e2e
+File Upload System with validation
+Report Generation and download
+PDF Report Creation for analytics
+Secure File Access with role-based permissions
 
-# test coverage
-$ npm run test:cov
-```
+📧 Email Services
 
-## Deployment
+Email Deliverability Verification
+Verification Emails for account activation
+Password Reset Emails
+File Upload Notifications
+Test Email Environment for development
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+🛠️ Tech Stack
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Framework: NestJS (TypeScript)
+Database: PostgreSQL with TypeORM
+Authentication: Passport.js (JWT + Google OAuth)
+Real-time: WebSocket/Socket.io
+Payments: Stripe API
+File Upload: Multer
+Email: Nodemailer
+PDF Generation: PDF libraries for reports
+Validation: Class Validator & Class Transformer
+Security: bcrypt, JWT, CORS
